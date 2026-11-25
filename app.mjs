@@ -3,7 +3,7 @@ import {addressFor, browserTasks, completeTask, connection, createReminder, disc
 
 import {applyDesign, defaults, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=4'
 
-import {commentaries, onkelos, passageRefs, torahReferences} from './reader-content.mjs?v=4'
+import {commentaries, onkelos, passageRefs, selectCommentaries, torahReferences} from './reader-content.mjs?v=5'
 
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
@@ -887,27 +887,29 @@ async function readingCommentaries(state) {
       label.append(check,document.createTextNode(name))
       choices.append(label)
     }
+    const actions = node('div','',{className:'inline'})
     const apply = async (mode) => {
       if (mode !== 'source' && !selected.size) { report.textContent = 'בחר פירוש אחד לפחות.'; return }
-      const result = new Map()
-      if (mode !== 'source') for (const name of selected) {
-        for (const [index,comments] of available.get(name) || []) {
-          const lines = result.get(index) || []
-          lines.push(...comments.map(item => [name,item.text]))
-          result.set(index,lines)
-        }
+      const buttons = [...actions.querySelectorAll('button')]
+      for (const control of buttons) control.disabled = true
+      report.textContent = mode === 'source' ? '' : 'טוען את הפירושים שבחרת…'
+      try {
+        const result = mode === 'source' ? new Map() : await selectCommentaries(available,selected)
+        if (reader !== state || !toolsDialog.open) return
+        if (mode !== 'source' && !result.size) { report.textContent = 'לא ניתן לטעון את הטקסט של הפירושים האלה.'; return }
+        state.selectedCommentaries = [...selected]
+        await setReadingMode(state,mode,result)
+        toolsDialog.close()
+      } finally {
+        for (const control of buttons) control.disabled = false
       }
-      state.selectedCommentaries = [...selected]
-      await setReadingMode(state,mode,result)
-      toolsDialog.close()
     }
     report.textContent = ''
-    const actions = node('div','',{className:'inline'})
     actions.append(button('הצג פירושים',() => apply('commentaries')),
       button('פירוש משולב',() => apply('combined')),button('חזרה למקור',() => apply('source')))
     content.append(choices,actions)
   } catch (error) {
-    report.textContent = error.message || 'טעינת הפירושים נכשלה.'
+    report.textContent = error.name === 'TimeoutError' ? 'ספריא לא השיבה בזמן. נסה לפתוח קטע קצר יותר.' : error.message || 'טעינת הפירושים נכשלה.'
   }
 }
 
