@@ -306,7 +306,7 @@ async function syncedStudy(ticket, parameter) {
     if (!latest.has(track)) latest.set(track, record)
   }
   if (!latest.size && !programs?.length) {
-    view.append(node('p', 'כדי להציג כאן לימוד, פתח אותו בקידומן בטלפון ובצע סנכרון.'))
+    view.append(node('p', 'הלימודים יופיעו כאן אחרי שגרסת קידומן המעודכנת בטלפון תשלח אותם. בטלפון פתח צימוד וסנכרון, לחץ על סנכרון עכשיו ואז לחץ כאן על סנכרון עם הטלפון.'))
     return
   }
   const grid = node('div', '', {className:'grid'})
@@ -516,6 +516,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
     modeKey:'reading-mode:' + id}
   if (ticket !== revision) return
   reader = state
+  document.body.classList.add('reading-view')
   if (!personal) {
     const saveButton = button(available ? 'נשמר לקריאה בלי אינטרנט' : 'שמירה לקריאה בלי אינטרנט', async () => {
       await write('saved:' + id, entry)
@@ -567,6 +568,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
   state.progress = node('progress', '', {max:100, value:0})
   state.progress.setAttribute('aria-label', 'התקדמות בקריאה')
   const readerTools = node('div', '', {className:'reader-toolbar'})
+  state.toolbar = readerTools
   readerTools.append(state.progress, ...readingTools(state))
   const pages = node('div', '', {className:'reader-actions'})
   const previous = button('עמוד קודם', async () => { await pin(state, state.rows[(state.page - 1) * 80].offset); jumpTo(state, state.mark) })
@@ -652,9 +654,10 @@ window.addEventListener('scroll', () => {
   const state = reader
   clearTimeout(scrollTimer)
   scrollTimer = setTimeout(() => {
-    if (state !== reader || state.article.getBoundingClientRect().top > 100) return
+    const edge = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
+    if (state !== reader || state.article.getBoundingClientRect().top > edge + 16) return
     const rows = [...state.article.children]
-    const visible = rows.find(row => row.getBoundingClientRect().bottom > 28)
+    const visible = rows.find(row => row.getBoundingClientRect().bottom > edge)
     if (visible && preferences.autoPosition) protect(() => pin(state, Number(visible.dataset.offset)))
   }, 240)
 }, {passive:true})
@@ -665,7 +668,7 @@ async function show() {
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
   if (ticket !== revision) return
   reader = null
-  document.body.classList.remove('reading-fullscreen')
+  document.body.classList.remove('reading-fullscreen','reading-view')
   status()
   const fragment = location.hash.slice(1)
   const splitAt = fragment.indexOf('/')
@@ -709,7 +712,8 @@ async function show() {
 }
 
 function currentOffset(state) {
-  const visible = [...state.article.children].find(row => row.getBoundingClientRect().bottom > 92)
+  const edge = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
+  const visible = [...state.article.children].find(row => row.getBoundingClientRect().bottom > edge)
   return Math.max(0, Number(visible?.dataset.offset ?? state.mark))
 }
 
@@ -795,7 +799,7 @@ function pageScroll(state, direction) {
   const at = rowOffset(state.rows,currentOffset(state))
   const visible = [...state.article.children].filter(row => {
     const rect = row.getBoundingClientRect()
-    return rect.bottom > 92 && rect.top < window.innerHeight
+    return rect.bottom > Math.max(0,state.toolbar.getBoundingClientRect().bottom) && rect.top < window.innerHeight
   }).length
   const target = Math.max(0,Math.min(at + direction * Math.max(1,visible),state.rows.length - 1))
   const offset = state.rows[target].offset
@@ -833,7 +837,14 @@ function stopSpeech() {
   const current = speaking
   speaking = null
   speechSynthesis.cancel()
-  current.control.textContent = 'הקראה'
+  speechButton(current.control,false)
+}
+
+function speechButton(control, playing) {
+  const label = playing ? 'עצירת הקראה' : 'הקראה'
+  control.textContent = playing ? '■' : '🔊'
+  control.setAttribute('aria-label',label)
+  control.title = label
 }
 
 function readAloud(state, control) {
@@ -844,7 +855,7 @@ function readAloud(state, control) {
   if (!voice && speechSynthesis.getVoices().length) throw new Error('אין קול עברי זמין בדפדפן הזה.')
   const session = {state, control, index:rowOffset(state.rows,currentOffset(state))}
   speaking = session
-  control.textContent = 'עצירת הקראה'
+  speechButton(control,true)
   const speakNext = () => {
     if (speaking !== session) return
     if (session.index >= state.rows.length) { stopSpeech(); return }
@@ -966,10 +977,19 @@ function readingTools(state) {
     })
     controls.push(mikra)
   }
-  const aloud = button('הקראה', () => readAloud(state,aloud))
+  const menu = button('כלי קריאה', () => {
+    const items = node('div','',{className:'reading-tool-grid'})
+    items.append(...controls)
+    items.addEventListener('click',event => {
+      if (event.target.closest('button')) toolsDialog.close()
+    },{capture:true})
+    readerDialog('כלי קריאה').append(items)
+  })
+  const aloud = button('', () => readAloud(state,aloud), 'reader-speech')
+  speechButton(aloud,false)
   state.fullscreen = button('מסך מלא', () => toggleFullscreen(state))
   state.fullscreen.setAttribute('aria-pressed','false')
-  return [...controls,aloud,state.fullscreen,state.arrows]
+  return [menu,state.fullscreen,state.arrows,aloud]
 }
 
 window.addEventListener('keydown', event => {

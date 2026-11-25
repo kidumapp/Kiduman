@@ -98,3 +98,21 @@ legend{font-weight:700;padding-inline:.35rem}
 .reading-fullscreen .reader{margin-block:.35rem;padding-block:1rem}
 @font-face{font-family:"Kiduman David Libre";src:url("./DavidLibre-Regular.ttf") format("truetype");font-display:swap}
 @font-face{font-family:"Kiduman SemiStam";src:url("./ShlomoSemiStam.ttf") format("truetype");font-display:swap}
+.reading-view .layout{padding-block-start:.75rem}
+.reading-view #view>.heading{font-size:clamp(1.3rem,4vw,2rem);margin-block-end:.45rem}
+.reading-view .reader-actions{gap:.3rem;margin-block:.35rem}
+.reading-view .reader-actions button{min-height:36px;padding:.25rem .5rem;font-size:.85rem}
+.reading-view .reader-toolbar{flex-wrap:nowrap;gap:.3rem;padding:.26rem .4rem}
+.reading-view .reader-toolbar progress{order:2;flex:1;min-width:1.25rem}
+.reading-view .reader-toolbar button:not(.reader-speech,.reader-arrows button){min-height:36px;padding:.2rem .45rem;white-space:nowrap}
+.reading-view .reader{margin-block:.45rem}
+.reading-view .reader article p{scroll-margin:3.1rem}
+.reading-tool-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:.5rem}
+.reader-toolbar .reader-speech{position:fixed;z-index:3;inset-inline-end:.18rem;top:calc(50% + 3.2rem);width:40px;padding:0;min-height:40px;background:var(--paper);color:var(--accent);box-shadow:0 2px 5px #0002}
+@media(max-width:720px){
+  .reading-view aside{display:none}
+  .reading-view .layout{padding:.5rem .65rem}
+  .reading-view .reader{margin-inline:1.95rem;padding:1rem .55rem}
+  .reader-arrows.at-edge button{width:34px}
+  .reader-toolbar .reader-speech{width:34px;min-height:36px}
+}
