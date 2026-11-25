@@ -1,4 +1,4 @@
-import {keys, read, remove, write} from './data.mjs?v=4'
+import {keys, read, remove, write} from './data.mjs?v=5'
 
 const base = 'https://jewish-watch-sync.jewish-watch.workers.dev'
 const pairing = 'reading-pairing'

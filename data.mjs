@@ -77,17 +77,25 @@ export function formatText(page, version) {
     }
     if (typeof value !== 'string') return
     const text = plain(value)
-    if (text) rows.push({address: path.join(':'), text})
+    if (text) {
+      const opening = /^\s*<(?:b|strong)\b[^>]*>([\s\S]*?)<\/(?:b|strong)>/i.exec(value)
+      rows.push({address:path.join(':'),text,...(opening?{opening:plain(opening[1])}:{})})
+    }
   }
   walk(version.text, sections.slice(0, fixed).map(String), true)
   return rows
 }
 
 export async function text(ref) {
-  const key = 'passage:' + ref
+  const key = 'passage-v2:' + ref
   const cached = await read(key)
   if (cached) return cached
-  const page = await api('v3/texts/' + encodeURIComponent(ref) + '?version=hebrew')
+  const page = await api('v3/texts/' + encodeURIComponent(ref) + '?version=hebrew').catch(async error => {
+    const old = await read('passage:' + ref)
+    if (old) return {cachedPassage:old}
+    throw error
+  })
+  if (page.cachedPassage) return page.cachedPassage
   const version = page.versions?.find(item => item.text !== undefined)
   if (!version) throw new Error('לא נמצאה גרסה בעברית.')
   const rows = formatText(page, version)

@@ -1,9 +1,9 @@
-import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=4'
-import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=4'
+import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=5'
+import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=5'
 
-import {applyDesign, defaults, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=4'
+import {applyDesign, defaults, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=5'
 
-import {commentaries, onkelos, passageRefs, selectCommentaries, torahReferences} from './reader-content.mjs?v=5'
+import {commentaries, onkelos, passageRefs, selectCommentaries, syncedComposition, torahReferences} from './reader-content.mjs?v=6'
 
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
@@ -290,7 +290,14 @@ async function syncedStudy(ticket, parameter) {
       type:'daily', program:record.program, day:record.date, syncTab:record.tab, sourceRefs:record.refs,
       ref:record.refs.join(' / '), region:preferences.region
     }
+    let failure
+    if (record.recipe) {
+      try { entry.syncedMode = await syncedComposition(record.recipe,record.refs,entry.rows) }
+      catch (error) { failure = error.message || 'טעינת הפירוש המסונכרן נכשלה.' }
+    }
+    if (ticket !== revision) return
     await renderReader(entry, ticket, true)
+    if (failure && ticket === revision) status(failure)
     return
   }
   view.append(button('סנכרון עם הטלפון', async () => {
@@ -511,7 +518,8 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const mark = synced?.updatedAt > (local?.updatedAt || 0)
     ? anchorOffset(raw, synced) ?? (entry.syncTab && synced.offset < raw.length ? synced.offset : local?.offset ?? 0) : local?.offset || 0
   const state = {entry, article, rows, raw, key, mark, viewed:false, page:0,
-    refs:passageRefs(entry),mode:'source',extras:new Map(),
+    refs:passageRefs(entry),mode:entry.syncedMode?.mode || 'source',extras:entry.syncedMode?.extras || new Map(),
+    sourceStyle:entry.syncedMode?.sourceStyle,
     bookmarkKey:'bookmarks:' + id, bookmarks:await read('bookmarks:' + id) || [],
     modeKey:'reading-mode:' + id}
   if (ticket !== revision) return
@@ -583,10 +591,11 @@ async function renderReader(entry, ticket, keepHeading = false) {
     attribution.append(link('ספריא', 'https://www.sefaria.org/' + encodeURIComponent(entry.ref)))
     view.append(attribution)
   }
+  state.article.dataset.readingMode = state.mode
   renderPage(state, rowOffset(rows, mark))
   const mode = await read(state.modeKey)
   if (ticket !== revision || reader !== state) return
-  if (mode && !state.viewed) {
+  if (mode && !entry.syncedMode && !state.viewed) {
     state.mode = mode.mode
     state.extras = new Map(mode.extras)
     state.selectedCommentaries = mode.commentaries
@@ -594,6 +603,22 @@ async function renderReader(entry, ticket, keepHeading = false) {
     renderPage(state,rowOffset(rows,mark))
   }
   if (mark && !state.viewed) requestAnimationFrame(() => { if (reader === state) jumpTo(state, mark) })
+}
+
+function displayReadingText(value,style) {
+  return readingText(value,style?.stripNiqqud ? 'plain' : preferences.vocalization)
+}
+
+function applyComponentStyle(element,style) {
+  if (!style) return
+  const color = value => '#' + (value & 0xffffff).toString(16).padStart(6,'0')
+  if (style.color) element.style.color = color(style.color)
+  if (style.background) element.style.backgroundColor = color(style.background)
+  else if (style.backgroundStep)
+    element.style.backgroundColor = `color-mix(in srgb,var(--reader-paper),${style.backgroundStep>0?'white':'black'} ${Math.abs(style.backgroundStep)*12}%)`
+  if (style.bold) element.style.fontWeight = 'bold'
+  if (style.italic) element.style.fontStyle = 'italic'
+  if (style.scale) element.style.fontSize = style.scale + 'em'
 }
 
 function renderPage(state, target) {
@@ -605,23 +630,45 @@ function renderPage(state, target) {
     paragraph.dataset.offset = row.offset
     const address = readingAddress(row.address, preferences.addressStyle)
     if (address) paragraph.append(node('bdi', address, {className:'address'}), document.createTextNode(' '))
-    const source = node('span',readingText(row.text,preferences.vocalization) || '\u00a0',{className:'reader-source'})
-    paragraph.append(source)
     const bookmark = state.bookmarks.find(item => item.offset === row.offset)
     if (row.offset === state.mark) paragraph.classList.add('last-position')
     if (bookmark) {
       paragraph.classList.add('bookmarked')
       paragraph.title = bookmark.name
     }
+    const extras = state.extras.get(start + state.article.childElementCount) || []
+    const source = value => {
+      const span = node('span',displayReadingText(value,state.sourceStyle),{className:'reader-source'})
+      span.dataset.speech=value
+      applyComponentStyle(span,state.sourceStyle)
+      paragraph.append(span)
+    }
+    const note = ([name,value,style]) => {
+      const span = node('span','',{className:style?.inline ? 'reader-note inline-note' : 'reader-note'})
+      if (style?.showName !== false) span.append(node('strong',name + ' · '))
+      const body=node('span',displayReadingText(value,style),{className:'reader-note-body'})
+      body.dataset.speech=value
+      span.append(body)
+      applyComponentStyle(span,style)
+      paragraph.append(span)
+    }
+    const inline = extras.filter(item => item[3] !== undefined)
+      .sort((left,right) => left[3] - right[3])
+    let from = 0
+    for (const item of inline) {
+      source(row.text.slice(from,item[3]))
+      note(item)
+      from = item[3]
+    }
+    source(row.text.slice(from) || '\u00a0')
     if (state.mode === 'shnayim') {
-      paragraph.append(node('span',readingText(row.text,preferences.vocalization),{className:'reader-repeat'}))
+      const repeat=node('span',displayReadingText(row.text),{className:'reader-repeat'})
+      repeat.dataset.speech=row.text
+      paragraph.append(repeat)
     }
-    const extras = state.extras.get(start + state.article.childElementCount)
-    for (const [name,value] of extras || []) {
-      const note = node('span','',{className:'reader-note'})
-      note.append(node('strong',name + ' · '),document.createTextNode(readingText(value,preferences.vocalization)))
-      paragraph.append(note)
-    }
+    for (const item of extras) if (item[3] === undefined) note(item)
+    if (speaking?.state === state && speaking.index === start + state.article.childElementCount)
+      paragraph.classList.add('speech-row')
     state.article.append(paragraph)
   })
   updateReaderProgress(state)
@@ -837,6 +884,7 @@ function stopSpeech() {
   const current = speaking
   speaking = null
   speechSynthesis.cancel()
+  current.state.article.querySelector('.speech-row')?.classList.remove('speech-row')
   speechButton(current.control,false)
 }
 
@@ -860,9 +908,12 @@ function readAloud(state, control) {
     if (speaking !== session) return
     if (session.index >= state.rows.length) { stopSpeech(); return }
     const row = state.rows[session.index]
-    const extras = (state.extras.get(session.index) || []).map(([,text]) => text)
-    const value = [row.text, ...(state.mode === 'shnayim' ? [row.text] : []), ...extras].join(' ')
-    const speech = new SpeechSynthesisUtterance(value)
+    jumpTo(state,row.offset)
+    const paragraph = state.article.children[session.index % 80]
+    const selector = state.mode === 'commentaries' ? '.reader-note-body' : '.reader-source,.reader-repeat,.reader-note-body'
+    const value = [...paragraph.querySelectorAll(selector)].map(part => part.dataset.speech).join(' ').trim()
+    if (!value) { session.index++; queueMicrotask(speakNext); return }
+    const speech = new SpeechSynthesisUtterance(preferences.speechIgnoreNiqqud ? readingText(value,'plain') : value)
     speech.lang = 'he-IL'
     if (voice) speech.voice = voice
     speech.rate = preferences.speechRate
@@ -872,7 +923,6 @@ function readAloud(state, control) {
       stopSpeech()
       status('לא ניתן להמשיך בהקראה. בדוק שקול עברי מותקן במכשיר.')
     }
-    jumpTo(state,row.offset)
     protect(() => pin(state,row.offset))
     speechSynthesis.speak(speech)
   }
@@ -928,6 +978,7 @@ async function setReadingMode(state, mode, extras) {
   const offset = currentOffset(state)
   stopSpeech()
   state.mode = mode
+  state.sourceStyle = undefined
   state.extras = extras
   state.article.dataset.readingMode = mode
   jumpTo(state,offset)

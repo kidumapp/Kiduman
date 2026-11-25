@@ -11,12 +11,12 @@ export const defaults = {
   theme:'auto', font:22, region:'Israel',
   readingTheme:'auto', fontFace:'serif', width:45, spacing:1.85, justify:false,
   addressStyle:'numbers', vocalization:'all', dayPaper:'#fff7e6', nightPaper:'#081a2c',
-  dayInk:'', nightInk:'', arrows:'edge', arrowLayout:'both', autoPosition:true, speechRate:1
+  dayInk:'', nightInk:'', arrows:'edge', arrowLayout:'both', autoPosition:true, speechRate:1, speechIgnoreNiqqud:true
 }
 
 export const readFields = [
   'readingTheme','font','fontFace','width','spacing','justify','addressStyle','vocalization',
-  'dayPaper','nightPaper','arrows','arrowLayout','autoPosition','speechRate'
+  'dayPaper','nightPaper','arrows','arrowLayout','autoPosition','speechRate','speechIgnoreNiqqud'
 ]
 
 const systemDark = matchMedia('(prefers-color-scheme: dark)')

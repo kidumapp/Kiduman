@@ -116,3 +116,5 @@ legend{font-weight:700;padding-inline:.35rem}
   .reader-arrows.at-edge button{width:34px}
   .reader-toolbar .reader-speech{width:34px;min-height:36px}
 }
+.reader article p.speech-row{background:color-mix(in srgb,var(--accent) 20%,var(--reader-paper));outline:2px solid var(--accent);outline-offset:3px;border-radius:.25rem}
+.reader-note.inline-note{display:inline;border:0;padding-inline:.28em;margin:0}
