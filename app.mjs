@@ -1,5 +1,5 @@
 import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs'
-import {addressFor, browserTasks, completeTask, connection, disconnect, pair, queue, remote, studyId, syncedStudies, synchronize} from './sync.mjs'
+import {addressFor, browserTasks, completeTask, connection, disconnect, pair, queue, remote, studyId, syncedStudies, synchronize} from './sync.mjs?v=2'
 
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
