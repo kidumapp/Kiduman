@@ -1,5 +1,5 @@
 import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs'
-import {addressFor, connection, disconnect, pair, queue, remote, synchronize} from './sync.mjs'
+import {addressFor, browserTasks, completeTask, connection, disconnect, pair, queue, remote, studyId, syncedStudies, synchronize} from './sync.mjs'
 
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
@@ -86,6 +86,125 @@ function dailyLink(program, day) {
 function calendarProgram(item) {
   return item.category === 'Mishnah' || ['Daily Mishnah', 'Mishnah Yomit'].includes(item.title?.en)
     ? 'Mishnah' : item.title?.en || item.category
+}
+
+function followingDay(day) {
+  const date = new Date(day + 'T12:00:00Z')
+  date.setUTCDate(date.getUTCDate() + 1)
+  return date.toISOString().slice(0,10)
+}
+
+function nextStudyDay(entry) {
+  const day = followingDay(entry.day)
+  if (!entry.syncTab) {
+    location.hash = dailyLink(entry.program, day)
+    return
+  }
+  location.hash = 'continue/' + encodeURIComponent(JSON.stringify([entry.program, day, entry.syncTab]))
+}
+
+async function tasks(ticket, date = localDate(zone())) {
+  heading('משימות')
+  const tasks = await browserTasks()
+  if (ticket !== revision) return
+  if (!tasks) {
+    view.append(node('p', 'כדי לסמן ביצוע, צמד את הדפדפן עם קוד ממסך צימוד וסנכרון בטלפון.'))
+    view.append(button('צימוד וסנכרון', () => $('#prefs').click()))
+    return
+  }
+  const label = node('label', 'תאריך ביצוע')
+  const dateInput = node('input', '', {type:'date',value:date})
+  dateInput.onchange = () => { if (dateInput.value) location.hash = 'tasks/' + dateInput.value }
+  label.append(dateInput)
+  view.append(label)
+  const grid = node('div', '', {className:'grid'})
+  for (const task of tasks) {
+    if (date < (task.date || task.startsOn || '')) continue
+    const key = task.reset === 'NEVER' ? 'once' : date
+    const completion = task.completions.find(record => record.occurrenceKey === key)
+    let done = completion?.completed ?? (task.completed && (key === 'once' || task.completedOn === key))
+    const control = button(done ? 'ביטול סימון ביצוע' : 'סימון ביצוע', async () => {
+      control.disabled = true
+      try {
+        await completeTask(task.id, key, !done)
+        done = !done
+        control.textContent = done ? 'ביטול סימון ביצוע' : 'סימון ביצוע'
+        status('סימון הביצוע נשמר.')
+      } finally {
+        control.disabled = false
+      }
+    })
+    const item = node('div', '', {className:'card'})
+    item.append(node('h2', task.title), control)
+    grid.append(item)
+  }
+  if (!grid.childElementCount) view.append(node('p', 'אין משימות מסונכרנות לתאריך הזה.'))
+  else view.append(grid)
+}
+
+async function syncedStudy(ticket, parameter) {
+  heading('הלימודים שלי')
+  const connected = await connection()
+  if (ticket !== revision) return
+  if (!connected) {
+    view.append(node('p', 'כדי לראות את הלימודים מהטלפון, פתח הגדרות וצמד את הדפדפן.'))
+    view.append(button('צימוד וסנכרון', () => $('#prefs').click()))
+    return
+  }
+  const records = await syncedStudies()
+  if (ticket !== revision) return
+  if (parameter) {
+    const id = decodeURIComponent(parameter)
+    const [program, day, tab] = JSON.parse(id)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('תאריך הלימוד אינו תקין.')
+    let record = records.find(item => studyId(item) === id)
+    if (!record) {
+      const previous = records.find(item => item.program === program && item.tab === tab &&
+        item.nextRefs?.length && followingDay(item.date) === day)
+      if (previous) record = {program, date:day, tab, refs:previous.nextRefs}
+    }
+    if (!record) {
+      const calendarId = {mishnah:'Mishnah', 'Mishnah Yomit':'Mishnah'}[program] || program
+      if (!['aliyah','tehillim'].includes(program)) {
+        const items = (await calendar(day, preferences.region, zone())).calendar_items
+        if (items.some(item => item.ref && calendarProgram(item) === calendarId)) {
+          const item = items.find(item => item.ref && calendarProgram(item) === calendarId)
+          record = {program, date:day, tab:'source', refs:[item.ref], title:item.title?.he}
+        }
+      }
+      if (ticket !== revision) return
+      if (!record) {
+        view.append(node('p', 'מראה המקום ליום ' + day + ' עדיין לא סונכרן מהטלפון.'))
+        view.append(link('לכל הלימודים בתאריך הזה', '#daily/' + day), ' · ', link('חזרה ללימודים שלי', '#continue'))
+        return
+      }
+    }
+    status('טוען את קטע הלימוד…')
+    const parts = await Promise.all(record.refs.map(text))
+    const entry = {
+      ...parts[0], rows: parts.flatMap(part => part.rows), title: record.title || parts[0].title,
+      type:'daily', program:record.program, day:record.date, syncTab:record.tab,
+      ref:record.refs.join(' / '), region:preferences.region
+    }
+    await renderReader(entry, ticket, true)
+    return
+  }
+  const latest = new Map()
+  records.sort((a,b) => (b.position?.updatedAt ?? b.updatedAt) - (a.position?.updatedAt ?? a.updatedAt))
+  for (const record of records) {
+    const track = JSON.stringify([record.program, record.tab])
+    if (!latest.has(track)) latest.set(track, record)
+  }
+  if (!latest.size) {
+    view.append(node('p', 'כדי להציג כאן לימוד, פתח אותו בקידומן בטלפון ובצע סנכרון.'))
+    return
+  }
+  const grid = node('div', '', {className:'grid'})
+  for (const record of latest.values()) {
+    grid.append(card(record.title || record.refs[0], record.date + ' · ' + record.refs.join(' · '),
+      () => { location.hash = 'continue/' + encodeURIComponent(studyId(record)) }))
+  }
+  view.append(grid)
 }
 
 async function daily(ticket, date, program) {
@@ -208,7 +327,9 @@ async function saved(ticket) {
 
 function entryId(entry) {
   if (entry.type === 'personal') return 'personal:' + entry.hash
-  return JSON.stringify([entry.type, entry.program, entry.day, entry.region, entry.ref])
+  const key = [entry.type, entry.program, entry.day, entry.region, entry.ref]
+  if (entry.syncTab) key.push(entry.syncTab)
+  return JSON.stringify(key)
 }
 
 function rowOffset(rows, offset) {
@@ -270,7 +391,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const available = !personal ? await read('saved:' + id) : null
   if (ticket !== revision) return
   const mark = synced?.updatedAt > (local?.updatedAt || 0)
-    ? anchorOffset(raw, synced) ?? local?.offset ?? 0 : local?.offset || 0
+    ? anchorOffset(raw, synced) ?? (entry.syncTab && synced.offset < raw.length ? synced.offset : local?.offset ?? 0) : local?.offset || 0
   const state = {entry, article, rows, raw, key, mark, viewed:false, page:0}
   reader = state
   if (!personal) {
@@ -291,15 +412,25 @@ async function renderReader(entry, ticket, keepHeading = false) {
     const remoteDone = await remote(address)
     if (ticket !== revision) return
     let done = Number(remoteDone?.updatedAt > (localDone?.updatedAt || 0) ? remoteDone.offset : localDone?.offset) === 1
-    const completion = button(done ? 'ביטול סימון סיום' : 'סיימתי', async () => {
-      const next = !done
+    const setDone = async next => {
       await write(doneKey, {offset:Number(next),updatedAt:Date.now()})
       await queue(address, Number(next))
       done = next
       completion.textContent = done ? 'ביטול סימון סיום' : 'סיימתי'
+      advance.textContent = done ? 'מעבר ליום הבא' : 'סיום ומעבר ליום הבא'
       scheduleSync()
+    }
+    const completion = button(done ? 'ביטול סימון סיום' : 'סיימתי', () => setDone(!done))
+    const advance = button(done ? 'מעבר ליום הבא' : 'סיום ומעבר ליום הבא', async () => {
+      advance.disabled = true
+      try {
+        if (!done) await setDone(true)
+        nextStudyDay(entry)
+      } finally {
+        advance.disabled = false
+      }
     }, 'primary')
-    actions.append(completion)
+    actions.append(completion, advance)
   }
   const jump = button('המשך מהמקום האחרון', () => jumpTo(state, state.mark))
   jump.disabled = !mark
@@ -325,6 +456,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
     view.append(attribution)
   }
   renderPage(state, rowOffset(rows, mark))
+  if (entry.syncTab && mark) requestAnimationFrame(() => { if (reader === state) jumpTo(state, mark) })
 }
 
 function renderPage(state, target) {
@@ -392,6 +524,8 @@ async function show() {
     await daily(ticket, date, program && decodeURIComponent(program))
     return
   }
+  if (route === 'tasks') return tasks(ticket, /^\d{4}-\d{2}-\d{2}$/.test(parameter) ? parameter : undefined)
+  if (route === 'continue') return syncedStudy(ticket, parameter)
   if (route === 'siddur') return siddur(ticket)
   if (route === 'saved' && !parameter) return saved(ticket)
   if (['read','prayer','personal','saved'].includes(route)) {
@@ -436,6 +570,7 @@ async function syncNow() {
   try {
     const synced = await synchronize()
     await syncUI(synced ? 'הסנכרון הושלם.' : undefined)
+    if (synced && (location.hash === '#continue' || location.hash.startsWith('#tasks'))) await show()
   } catch (error) {
     await syncUI(error.message || 'הסנכרון לא הושלם.')
   }
@@ -455,8 +590,10 @@ $('#pair-form').onsubmit = event => {
   protect(async () => {
     const input = $('#pair-code')
     const code = input.value.trim()
-    input.value = ''
-    try { await pair(code) } catch (error) { await syncUI(error.message); return }
+    const submit = event.currentTarget.querySelector('button')
+    submit.disabled = true
+    try { await pair(code); input.value = '' } catch (error) { await syncUI(error.message); return }
+    finally { submit.disabled = false }
     await syncNow()
     if (reader && !reader.viewed) await show()
   })
