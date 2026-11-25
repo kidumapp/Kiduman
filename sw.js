@@ -1,6 +1,6 @@
 const prefix = 'kiduman-web:'
-const version = prefix + 'shell-v3'
-const shell = ['./', './index.html', './styles.css', './app.mjs?v=2', './data.mjs', './sync.mjs?v=2']
+const version = prefix + 'shell-v4'
+const shell = ['./', './index.html', './styles.css?v=3', './app.mjs?v=3', './reader-ui.mjs?v=3', './kiduman.png', './data.mjs', './sync.mjs?v=2']
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(version).then(cache => cache.addAll(shell)).then(() => self.skipWaiting()))

@@ -1,10 +1,15 @@
 import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs'
 import {addressFor, browserTasks, completeTask, connection, disconnect, pair, queue, remote, studyId, syncedStudies, synchronize} from './sync.mjs?v=2'
 
+import {applyDesign, defaults, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=3'
+
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
 const settings = $('#settings')
-const preferences = await read('preferences').catch(() => null) || {theme: 'auto', font: 22, region: 'Israel'}
+const preferences = {...defaults, ...await read('preferences').catch(() => null)}
+preferences.theme = {light:'blue_cream', dark:'blue_night'}[preferences.theme] || preferences.theme
+const readingSettings = $('#reading-settings')
+const toolsDialog = $('#reader-tool-dialog')
 const zone = () => preferences.region === 'Israel' ? 'Asia/Jerusalem' : Intl.DateTimeFormat().resolvedOptions().timeZone
 const books = [
   ['בראשית', 'Genesis 1', 'תורה'], ['שמות', 'Exodus 1', 'תורה'], ['ויקרא', 'Leviticus 1', 'תורה'],
@@ -392,7 +397,9 @@ async function renderReader(entry, ticket, keepHeading = false) {
   if (ticket !== revision) return
   const mark = synced?.updatedAt > (local?.updatedAt || 0)
     ? anchorOffset(raw, synced) ?? (entry.syncTab && synced.offset < raw.length ? synced.offset : local?.offset ?? 0) : local?.offset || 0
-  const state = {entry, article, rows, raw, key, mark, viewed:false, page:0}
+  const state = {entry, article, rows, raw, key, mark, viewed:false, page:0,
+    bookmarkKey:'bookmarks:' + id, bookmarks:await read('bookmarks:' + id) || []}
+  if (ticket !== revision) return
   reader = state
   if (!personal) {
     const saveButton = button(available ? 'נשמר לקריאה בלי אינטרנט' : 'שמירה לקריאה בלי אינטרנט', async () => {
@@ -442,13 +449,17 @@ async function renderReader(entry, ticket, keepHeading = false) {
   if (entry.type === 'library' && entry.next) top.append(button('הקטע הבא', () => openRef(entry.next)))
   if (top.childElementCount) actions.prepend(top)
   readerPanel.append(article)
+  state.progress = node('progress', '', {max:100, value:0})
+  state.progress.setAttribute('aria-label', 'התקדמות בקריאה')
+  const readerTools = node('div', '', {className:'reader-toolbar'})
+  readerTools.append(state.progress, ...readingTools(state))
   const pages = node('div', '', {className:'reader-actions'})
   const previous = button('עמוד קודם', async () => { await pin(state, state.rows[(state.page - 1) * 80].offset); jumpTo(state, state.mark) })
   const next = button('עמוד הבא', async () => { await pin(state, state.rows[(state.page + 1) * 80].offset); jumpTo(state, state.mark) })
   state.pager = {previous, next}
   pages.append(previous, next)
   pages.hidden = rows.length <= 80
-  view.append(actions, readerPanel, pages)
+  view.append(actions, readerTools, readerPanel, pages)
   if (entry.type === 'library' && entry.next) view.append(button('הקטע הבא', () => openRef(entry.next)))
   if (entry.version) {
     const attribution = node('p', entry.version + (entry.license ? ' · ' + entry.license : '') + ' · ', {className:'meta'})
@@ -466,10 +477,17 @@ function renderPage(state, target) {
   state.rows.slice(start, start + 80).forEach(row => {
     const paragraph = node('p', '')
     paragraph.dataset.offset = row.offset
-    if (row.address) paragraph.append(node('bdi', row.address, {className:'address'}), document.createTextNode(' '))
-    paragraph.append(document.createTextNode(row.text || '\u00a0'))
+    const address = readingAddress(row.address, preferences.addressStyle)
+    if (address) paragraph.append(node('bdi', address, {className:'address'}), document.createTextNode(' '))
+    paragraph.append(document.createTextNode(readingText(row.text, preferences.vocalization) || '\u00a0'))
+    const bookmark = state.bookmarks.find(item => item.offset === row.offset)
+    if (bookmark) {
+      paragraph.classList.add('bookmarked')
+      paragraph.title = bookmark.name
+    }
     state.article.append(paragraph)
   })
+  updateReaderProgress(state)
   state.pager.previous.disabled = state.page === 0
   state.pager.next.disabled = start + 80 >= state.rows.length
 }
@@ -485,6 +503,7 @@ async function pin(state, offset) {
   state.mark = offset
   state.viewed = true
   state.jump.disabled = !offset
+  updateReaderProgress(state)
   await write(state.key, {offset, updatedAt:Date.now()})
   const anchor = state.entry.type === 'personal' ? '' : state.raw.slice(offset, offset + 100).replace(/[\u0591-\u05c7]/g, '').replace(/\s+/g, ' ').trim()
   await queue(addressFor(state.entry), offset, anchor)
@@ -500,13 +519,14 @@ window.addEventListener('scroll', () => {
     if (state !== reader || state.article.getBoundingClientRect().top > 100) return
     const rows = [...state.article.children]
     const visible = rows.find(row => row.getBoundingClientRect().bottom > 28)
-    if (visible) protect(() => pin(state, Number(visible.dataset.offset)))
+    if (visible && preferences.autoPosition) protect(() => pin(state, Number(visible.dataset.offset)))
   }, 240)
 }, {passive:true})
 
 async function show() {
   const ticket = ++revision
   reader = null
+  document.body.classList.remove('reading-fullscreen')
   status()
   const fragment = location.hash.slice(1)
   const splitAt = fragment.indexOf('/')
@@ -548,15 +568,171 @@ async function show() {
   library()
 }
 
+function currentOffset(state) {
+  const visible = [...state.article.children].find(row => row.getBoundingClientRect().bottom > 92)
+  return Math.max(0, Number(visible?.dataset.offset ?? state.mark))
+}
+
+function updateReaderProgress(state) {
+  const last = Math.max(1, state.rows.length - 1)
+  state.progress.value = Math.round(rowOffset(state.rows,state.mark) / last * 100)
+}
+
+function readerDialog(title) {
+  $('#reader-tool-title').textContent = title
+  const content = $('#reader-tool-content')
+  content.replaceChildren()
+  toolsDialog.showModal()
+  return content
+}
+
+function findInReader(state) {
+  const content = readerDialog('חיפוש בטקסט')
+  const field = node('input', '', {type:'search', required:true, placeholder:'מילה או ביטוי'})
+  field.setAttribute('aria-label', 'מה לחפש')
+  const form = node('form', '', {className:'inline'})
+  const results = node('p', '', {role:'status'})
+  let lastQuery = '', index = -1
+  function search(direction) {
+    const query = searchText(field.value)
+    if (!query) return
+    const matches = state.rows.filter(row => searchText(row.text).includes(query))
+    if (query !== lastQuery) index = direction > 0 ? -1 : 0
+    lastQuery = query
+    if (!matches.length) { results.textContent = 'לא נמצאו התאמות.'; return }
+    index = (index + direction + matches.length) % matches.length
+    jumpTo(state,matches[index].offset)
+    const match = matches[index]
+    results.textContent = (index + 1) + ' מתוך ' + matches.length + ' · ' + match.text.slice(0,140)
+  }
+  form.onsubmit = event => { event.preventDefault(); search(1) }
+  form.append(field, node('button','הבא',{type:'submit'}), button('הקודם', () => search(-1)))
+  content.append(form,results)
+  field.focus()
+}
+
+function showBookmarks(state) {
+  const content = readerDialog('סימניות')
+  const list = node('ul', '', {className:'bookmark-list'})
+  const render = () => {
+    list.replaceChildren()
+    for (const item of state.bookmarks) {
+      const row = node('li', '')
+      row.append(button(item.name, () => { toolsDialog.close(); jumpTo(state,item.offset) }),
+        button('הסרה', async () => {
+          state.bookmarks = state.bookmarks.filter(bookmark => bookmark !== item)
+          await write(state.bookmarkKey,state.bookmarks)
+          renderPage(state, rowOffset(state.rows,currentOffset(state)))
+          render()
+        }))
+      list.append(row)
+    }
+    if (!list.childElementCount) list.append(node('li','אין סימניות בקטע הזה.'))
+  }
+  const form = node('form', '', {className:'inline'})
+  const name = node('input','',{type:'text',required:true,maxLength:80,placeholder:'שם לסימנייה'})
+  name.setAttribute('aria-label','שם לסימנייה')
+  form.append(name,node('button','הוספה במיקום הנוכחי',{type:'submit'}))
+  form.onsubmit = event => {
+    event.preventDefault()
+    protect(async () => {
+      const label = name.value.trim()
+      if (!label) return
+      const offset = currentOffset(state)
+      state.bookmarks = [...state.bookmarks.filter(item => item.offset !== offset),{name:label,offset}]
+        .sort((a,b) => a.offset - b.offset)
+      await write(state.bookmarkKey,state.bookmarks)
+      renderPage(state,rowOffset(state.rows,offset))
+      name.value = ''
+      render()
+    })
+  }
+  content.append(form,list)
+  render()
+}
+
+function pageScroll(state, direction) {
+  const at = rowOffset(state.rows,currentOffset(state))
+  const visible = [...state.article.children].filter(row => {
+    const rect = row.getBoundingClientRect()
+    return rect.bottom > 92 && rect.top < window.innerHeight
+  }).length
+  const target = Math.max(0,Math.min(at + direction * Math.max(1,visible),state.rows.length - 1))
+  const offset = state.rows[target].offset
+  jumpTo(state,offset)
+  return pin(state,offset)
+}
+
+function renderArrows(state) {
+  const group = state.arrows
+  const up = () => button('↑', () => pageScroll(state,-1))
+  const down = () => button('↓', () => pageScroll(state,1))
+  const side = (name, controls) => {
+    const container = node('div','',{className:name})
+    container.append(...controls)
+    return container
+  }
+  group.className = 'reader-arrows ' + (preferences.arrows === 'edge' ? 'at-edge' : 'inline')
+  const layout = preferences.arrowLayout
+  group.replaceChildren(...(preferences.arrows === 'toolbar'
+    ? [up(),down()] : [side('right',layout === 'both' ? [up(),down()] : [layout === 'reverse' ? down() : up()]),
+      side('left',layout === 'both' ? [up(),down()] : [layout === 'reverse' ? up() : down()])]))
+  for (const control of group.querySelectorAll('button')) {
+    control.setAttribute('aria-label',control.textContent === '↑' ? 'גלילה למעלה' : 'גלילה למטה')
+  }
+}
+
+function readingTools(state) {
+  state.arrows = node('div','')
+  renderArrows(state)
+  const fullscreen = button('מסך מלא', () => {
+    const active = document.body.classList.toggle('reading-fullscreen')
+    fullscreen.textContent = active ? 'יציאה ממסך מלא' : 'מסך מלא'
+    fullscreen.setAttribute('aria-pressed', String(active))
+  })
+  fullscreen.setAttribute('aria-pressed','false')
+  return [
+    button('הגדרות קריאה', () => readingSettings.showModal()),
+    button('חיפוש בטקסט', () => findInReader(state)),
+    button('סימניות', () => showBookmarks(state)),
+    button('שמור מיקום', async () => { await pin(state,currentOffset(state)); status('מיקום הקריאה נשמר.') }),
+    fullscreen, state.arrows
+  ]
+}
+
+window.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return
+  if (document.body.classList.contains('reading-fullscreen')) {
+    view.querySelector('button[aria-pressed="true"]')?.click()
+  }
+})
+
 function applyPreferences() {
-  if (preferences.theme === 'auto') delete document.documentElement.dataset.theme
-  else document.documentElement.dataset.theme = preferences.theme
-  document.documentElement.style.setProperty('--reader-size', preferences.font + 'px')
+  applyDesign(preferences)
   $('#theme').value = preferences.theme
-  $('#font-size').value = preferences.font
   $('#region').value = preferences.region
+  for (const field of readFields) {
+    const control = $('#' + field)
+    if (control.type === 'checkbox') control.checked = preferences[field]
+    else control.value = preferences[field]
+  }
+  $('#dayInk').value = preferences.dayInk || '#000000'
+  $('#nightInk').value = preferences.nightInk || '#ffffff'
+  $('#paper-preset').value = [...$('#paper-preset').options].some(option => option.value === preferences.dayPaper)
+    ? preferences.dayPaper : ''
+  $('#arrow-layout-field').hidden = preferences.arrows !== 'edge'
   $('#today').textContent = new Intl.DateTimeFormat('he-IL-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric', timeZone:zone()}).format()
 }
+
+async function saveDesign(property) {
+  const offset = reader && currentOffset(reader)
+  await write('preferences',preferences)
+  applyPreferences()
+  if (!reader) return
+  if (['addressStyle','vocalization'].includes(property)) jumpTo(reader,offset)
+  if (['arrows','arrowLayout'].includes(property)) renderArrows(reader)
+}
+
 
 async function syncUI(message) {
   const linked = await connection()
@@ -603,9 +779,30 @@ $('#sync-now').onclick = () => protect(async () => {
   if (reader && !reader.viewed) await show()
 })
 $('#disconnect').onclick = () => protect(async () => { await disconnect(); await syncUI() })
-for (const [selector, property] of [['#theme', 'theme'], ['#font-size', 'font'], ['#region', 'region']]) {
+$('#reading-prefs').onclick = () => { settings.close(); readingSettings.showModal() }
+for (const field of [...readFields,'dayInk','nightInk']) {
+  const input = $('#' + field)
+  input.onchange = () => protect(async () => {
+    preferences[field] = input.type === 'checkbox' ? input.checked
+      : input.type === 'range' ? Number(input.value) : input.value
+    await saveDesign(field)
+  })
+}
+$('#paper-preset').onchange = () => protect(async () => {
+  if (!$('#paper-preset').value) return
+  preferences.dayPaper = $('#paper-preset').value
+  preferences.readingTheme = 'day'
+  await saveDesign('dayPaper')
+})
+$('#automatic-ink').onclick = () => protect(async () => {
+  preferences.dayInk = ''
+  preferences.nightInk = ''
+  await saveDesign('ink')
+})
+watchSystemTheme(applyPreferences)
+for (const [selector, property] of [['#theme', 'theme'], ['#region', 'region']]) {
   $(selector).onchange = () => protect(async () => {
-    preferences[property] = property === 'font' ? Number($(selector).value) : $(selector).value
+    preferences[property] = $(selector).value
     await write('preferences', preferences)
     applyPreferences()
     if (property === 'region') {

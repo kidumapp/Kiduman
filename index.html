@@ -6,13 +6,15 @@
   <meta name="theme-color" content="#f7f8f5">
   <meta name="description" content="ספרייה, לימוד יומי וסידור בקידומן">
   <title>קידומן</title>
-  <link rel="stylesheet" href="./styles.css">
-  <script type="module" src="./app.mjs?v=2"></script>
+  <link rel="icon" href="./kiduman.png" type="image/png">
+  <link rel="apple-touch-icon" href="./kiduman.png">
+  <link rel="stylesheet" href="./styles.css?v=3">
+  <script type="module" src="./app.mjs?v=3"></script>
 </head>
 <body>
   <a class="skip" href="#main">דילוג לתוכן</a>
   <header class="top"><div class="top-inner">
-    <a class="brand" href="#library"><span aria-hidden="true">ק</span> קידומן</a>
+    <a class="brand" href="#library"><img src="./kiduman.png" width="38" height="38" alt=""> קידומן</a>
     <button type="button" id="prefs">הגדרות</button>
   </div></header>
   <div class="layout">
@@ -31,8 +33,15 @@
   <dialog id="settings">
     <form method="dialog"><button class="close" aria-label="סגירה">סגירה</button></form>
     <h2>הגדרות</h2>
-    <label>תצוגה <select id="theme"><option value="auto">לפי המכשיר</option><option value="light">בהירה</option><option value="dark">כהה</option></select></label>
-    <label>גודל טקסט בקריאה <input id="font-size" type="range" min="17" max="34" step="1"></label>
+    <label>ערכת נושא
+      <select id="theme">
+        <option value="auto">לפי המכשיר</option><option value="blue_cream">כחול ושמנת</option>
+        <option value="blue_night">כחול לילה</option><option value="graphite">גרפיט</option>
+        <option value="natural_green">ירוק טבעי</option><option value="soft_purple">סגול רך</option>
+        <option value="high_contrast">ניגודיות גבוהה</option>
+      </select>
+    </label>
+    <button type="button" id="reading-prefs">הגדרות קריאה</button>
     <label>לוח לימוד <select id="region"><option value="Israel">ישראל</option><option value="diaspora">חוץ לארץ</option></select></label>
     <section class="pair-section" aria-labelledby="pair-title">
       <h3 id="pair-title">סנכרון קריאה</h3>
@@ -43,6 +52,41 @@
       </form>
       <div class="inline" id="sync-actions" hidden><button type="button" id="sync-now">סנכרון עכשיו</button><button type="button" id="disconnect">ניתוק</button></div>
     </section>
+  </dialog>
+  <dialog id="reading-settings" aria-labelledby="reading-settings-title">
+    <form method="dialog"><button class="close">סגירה</button></form>
+    <h2 id="reading-settings-title">הגדרות קריאה</h2>
+    <fieldset>
+      <legend>מראה הקריאה</legend>
+      <label>מצב <select id="readingTheme"><option value="auto">לפי המכשיר</option><option value="day">יום</option><option value="night">לילה</option><option value="app">לפי ערכת הנושא של האתר</option></select></label>
+      <label>גודל טקסט <input id="font" type="range" min="14" max="38" step="1"></label>
+      <label>גופן <select id="fontFace"><option value="system">גופן מערכת</option><option value="serif">גופן ספרותי</option><option value="sans">ללא תגים</option></select></label>
+      <label>רוחב הטקסט <input id="width" type="range" min="25" max="68" step="1"></label>
+      <label>מרווח בין שורות <input id="spacing" type="range" min="1.2" max="2.5" step="0.05"></label>
+      <label class="check"><input id="justify" type="checkbox">יישור לשני הצדדים</label>
+      <label>מראי מקום <select id="addressStyle"><option value="numbers">מספרים</option><option value="hebrew">אותיות</option><option value="hidden">הסתרה</option></select></label>
+      <label>ניקוד וטעמים <select id="vocalization"><option value="all">ניקוד וטעמים</option><option value="vowels">ניקוד בלבד</option><option value="plain">טקסט ללא ניקוד</option></select></label>
+    </fieldset>
+    <fieldset>
+      <legend>צבעי קריאה</legend>
+      <label>רקע יום נפוץ <select id="paper-preset"><option value="">מותאם</option><option value="#fff7e6">שמנת</option><option value="#f2e2c4">קלף</option><option value="#d7c4a3">ספיה כהה</option><option value="#ffffff">לבן</option></select></label>
+      <div class="color-row">
+        <label>רקע יום <input type="color" id="dayPaper"></label><label>טקסט יום <input type="color" id="dayInk"></label>
+        <label>רקע לילה <input type="color" id="nightPaper"></label><label>טקסט לילה <input type="color" id="nightInk"></label>
+      </div>
+      <button type="button" id="automatic-ink">צבע טקסט אוטומטי ביום ובלילה</button>
+    </fieldset>
+    <fieldset>
+      <legend>כלי קריאה</legend>
+      <label>חצי גלילה <select id="arrows"><option value="toolbar">בכלי הקריאה</option><option value="edge">בצדי הטקסט</option></select></label>
+      <label id="arrow-layout-field">פריסת חצים <select id="arrowLayout"><option value="split">ימין למעלה, שמאל למטה</option><option value="reverse">ימין למטה, שמאל למעלה</option><option value="both">למעלה ולמטה בשני הצדדים</option></select></label>
+      <label class="check"><input id="autoPosition" type="checkbox">שמירת מיקום אוטומטית בגלילה</label>
+    </fieldset>
+  </dialog>
+  <dialog id="reader-tool-dialog" aria-labelledby="reader-tool-title">
+    <form method="dialog"><button class="close">סגירה</button></form>
+    <h2 id="reader-tool-title"></h2>
+    <div id="reader-tool-content"></div>
   </dialog>
 </body>
 </html>

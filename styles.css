@@ -55,3 +55,28 @@ dialog label{margin:.65rem 0}
 dialog .close{float:inline-end}
 .pair-section{border-top:1px solid var(--line);margin-top:1rem;padding-top:1rem}
 @media(max-width:720px){.top-inner{padding:.55rem 1rem}.layout{grid-template-columns:1fr;gap:1.15rem;padding:1rem}.date{margin:.5rem 0 0}nav{display:flex;flex-wrap:wrap}nav a{padding:.45rem .65rem}}
+.brand img{display:block;border-radius:.6rem}
+.reader{background:var(--reader-paper,var(--paper));color:var(--reader-ink,var(--ink))}
+.reader article{max-width:var(--reader-width,45rem);font-family:var(--reader-font,serif);line-height:var(--reader-spacing,1.85);text-align:var(--reader-align,start)}
+.reader article .address{color:var(--reader-address,var(--muted));opacity:.72}
+.reader article p.bookmarked{border-inline-start:3px solid currentColor;padding-inline-start:.55ch}
+.reader article p{scroll-margin:5.8rem}
+.reader-toolbar{position:sticky;top:0;z-index:2;display:flex;gap:.38rem;align-items:center;flex-wrap:wrap;padding:.52rem;background:var(--paper);border:1px solid var(--line);border-radius:.65rem}
+.reader-toolbar progress{flex:1 0 100%;height:.32rem;accent-color:var(--accent)}
+.reader-toolbar button{font-size:.86rem}
+.reader-arrows.at-edge{pointer-events:none;position:fixed;inset:50% .3rem auto;transform:translateY(-50%);display:flex;justify-content:space-between;direction:rtl}
+.reader-arrows.at-edge div{display:grid;gap:.25rem}
+.reader-arrows.at-edge button{pointer-events:auto}
+.reader-arrows button{min-width:42px;padding-inline:.4rem}
+.reading-fullscreen .top,.reading-fullscreen aside{display:none}
+.reading-fullscreen .layout{grid-template-columns:minmax(0,1fr);max-width:none;padding:.7rem 1rem}
+.reading-fullscreen .reader-actions{margin-block:.5rem}
+fieldset{min-width:0;border:1px solid var(--line);border-radius:.65rem;margin:.85rem 0;padding:.6rem .85rem}
+legend{font-weight:700;padding-inline:.35rem}
+.color-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 .8rem}
+.color-row input{width:100%;padding:.3rem;cursor:pointer}
+.check{display:flex;align-items:center;gap:.5rem}
+.check input{min-height:1.4rem;width:1.4rem;accent-color:var(--accent)}
+.bookmark-list{list-style:none;padding:0}
+.bookmark-list li{display:flex;gap:.4rem;justify-content:space-between;margin-block:.4rem}
+@media(max-width:720px){.reader{padding-inline:1rem}.reader-toolbar{padding:.35rem}.reader-toolbar button{padding-inline:.48rem;min-height:38px}.reader:has(~.reader-arrows.at-edge),main:has(.reader-arrows.at-edge) .reader{margin-inline:1.4rem}}
