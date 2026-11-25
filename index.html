@@ -8,8 +8,8 @@
   <title>קידומן</title>
   <link rel="icon" href="./kiduman.png" type="image/png">
   <link rel="apple-touch-icon" href="./kiduman.png">
-  <link rel="stylesheet" href="./styles.css?v=3">
-  <script type="module" src="./app.mjs?v=3"></script>
+  <link rel="stylesheet" href="./styles.css?v=4">
+  <script type="module" src="./app.mjs?v=4"></script>
 </head>
 <body>
   <a class="skip" href="#main">דילוג לתוכן</a>
@@ -20,8 +20,8 @@
   <div class="layout">
     <aside>
       <nav aria-label="ניווט ראשי">
-        <a href="#library">ספרייה</a><a href="#daily">לימוד יומי</a>
-        <a href="#continue">הלימודים שלי</a><a href="#tasks">משימות</a><a href="#siddur">סידור</a><a href="#saved">הספרים שלי</a>
+        <a href="#library">ספרייה</a><a href="#continue">לימוד יומי</a>
+        <a href="#daily">קטלוג ספריא</a><a href="#tasks">משימות</a><a href="#reminders">תזכורות</a><a href="#siddur">סידור</a><a href="#saved">הספרים שלי</a>
       </nav>
       <div class="date" id="today"></div>
     </aside>
@@ -60,7 +60,7 @@
       <legend>מראה הקריאה</legend>
       <label>מצב <select id="readingTheme"><option value="auto">לפי המכשיר</option><option value="day">יום</option><option value="night">לילה</option><option value="app">לפי ערכת הנושא של האתר</option></select></label>
       <label>גודל טקסט <input id="font" type="range" min="14" max="38" step="1"></label>
-      <label>גופן <select id="fontFace"><option value="system">גופן מערכת</option><option value="serif">גופן ספרותי</option><option value="sans">ללא תגים</option></select></label>
+      <label>גופן <select id="fontFace"><option value="system">גופן מערכת</option><option value="serif">גופן ספרותי</option><option value="sans">ללא תגים</option><option value="david_libre">דוד ליברה</option><option value="semi_stam">שלמה סמי־סת״ם</option></select></label>
       <label>רוחב הטקסט <input id="width" type="range" min="25" max="68" step="1"></label>
       <label>מרווח בין שורות <input id="spacing" type="range" min="1.2" max="2.5" step="0.05"></label>
       <label class="check"><input id="justify" type="checkbox">יישור לשני הצדדים</label>
@@ -78,8 +78,9 @@
     </fieldset>
     <fieldset>
       <legend>כלי קריאה</legend>
+      <label>מהירות הקראה <input id="speechRate" type="range" min="0.6" max="2" step="0.1"></label>
       <label>חצי גלילה <select id="arrows"><option value="toolbar">בכלי הקריאה</option><option value="edge">בצדי הטקסט</option></select></label>
-      <label id="arrow-layout-field">פריסת חצים <select id="arrowLayout"><option value="split">ימין למעלה, שמאל למטה</option><option value="reverse">ימין למטה, שמאל למעלה</option><option value="both">למעלה ולמטה בשני הצדדים</option></select></label>
+      <label id="arrow-layout-field">פריסת חצים <select id="arrowLayout"><option value="split">ימין למעלה, שמאל למטה</option><option value="reverse">ימין למטה, שמאל למעלה</option><option value="right">שני החצים בצד ימין</option><option value="left">שני החצים בצד שמאל</option><option value="both">למעלה ולמטה בשני הצדדים</option></select></label>
       <label class="check"><input id="autoPosition" type="checkbox">שמירת מיקום אוטומטית בגלילה</label>
     </fieldset>
   </dialog>

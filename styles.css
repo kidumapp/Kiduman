@@ -80,3 +80,21 @@ legend{font-weight:700;padding-inline:.35rem}
 .bookmark-list{list-style:none;padding:0}
 .bookmark-list li{display:flex;gap:.4rem;justify-content:space-between;margin-block:.4rem}
 @media(max-width:720px){.reader{padding-inline:1rem}.reader-toolbar{padding:.35rem}.reader-toolbar button{padding-inline:.48rem;min-height:38px}.reader:has(~.reader-arrows.at-edge),main:has(.reader-arrows.at-edge) .reader{margin-inline:1.4rem}}
+.reader-arrows.at-edge{inset:0 .15rem;transform:none}
+.reader-arrows.at-edge div{height:100%;display:flex;flex-direction:column;justify-content:center;gap:0}
+.reader-arrows.at-edge div:empty{visibility:hidden}
+.reader-arrows.at-edge button{width:42px;min-height:0;border:0;border-radius:.55rem;color:var(--accent);background:transparent;text-shadow:0 1px var(--paper);font-size:1.3rem}
+.reader-arrows.at-edge div:not(.split) button{height:100%}
+.reader-arrows.at-edge div.split button{height:50%;display:flex;justify-content:center;align-items:flex-end;padding-bottom:8px}
+.reader-arrows.at-edge div.split button+button{align-items:flex-start;padding-top:8px}
+.reader-arrows.at-edge button:hover,.reader-arrows.at-edge button:focus-visible{background:color-mix(in srgb,var(--paper) 85%,transparent)}
+.reader article p.last-position{box-shadow:inset -3px 0 var(--accent);padding-inline-start:.52ch}
+.reader-note,.reader-repeat{display:block;margin-block:.32em;color:inherit}
+.reader-note{font-size:.9em;padding-inline-start:.75em;border-inline-start:2px solid currentColor}
+.reader article[data-reading-mode=commentaries] p:not(:has(.reader-note)){display:none}
+.reader article[data-reading-mode=commentaries] .reader-source{display:none}
+.commentary-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+.reading-fullscreen #view>h1,.reading-fullscreen #view>h2,.reading-fullscreen #view>.reader-actions,.reading-fullscreen #view>.controls,.reading-fullscreen #view>.meta{display:none}
+.reading-fullscreen .reader{margin-block:.35rem;padding-block:1rem}
+@font-face{font-family:"Kiduman David Libre";src:url("./DavidLibre-Regular.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Kiduman SemiStam";src:url("./ShlomoSemiStam.ttf") format("truetype");font-display:swap}

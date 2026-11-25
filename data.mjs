@@ -47,7 +47,7 @@ async function save(key, value) {
   return value
 }
 
-function plain(html) {
+export function plain(html) {
   const element = document.createElement('textarea')
   element.innerHTML = String(html).replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]+>/g, '')
   return element.value.trim().replace(/[ \t\n\r\v\f]+/g, ' ')
@@ -84,13 +84,19 @@ export function formatText(page, version) {
 }
 
 export async function text(ref) {
+  const key = 'passage:' + ref
+  const cached = await read(key)
+  if (cached) return cached
   const page = await api('v3/texts/' + encodeURIComponent(ref) + '?version=hebrew')
   const version = page.versions?.find(item => item.text !== undefined)
   if (!version) throw new Error('לא נמצאה גרסה בעברית.')
   const rows = formatText(page, version)
   if (!rows.length) throw new Error('לא נמצא טקסט לקריאה.')
-  return {ref, title: page.heRef || page.ref || ref, rows, next: page.next, prev: page.prev,
-    version: version.versionTitle, license: version.license}
+  const canonical = page.ref || ref
+  const source = canonical.replace(/\s+\d+[ab]?(?::\d+)*(?:-[^ ]+)?$/, '')
+  for (const row of rows) if (row.address) row.sourceRef = source + ' ' + row.address
+  return save(key,{ref,canonical,title:page.heRef || canonical,rows,next:page.next,prev:page.prev,
+    version:version.versionTitle,license:version.license})
 }
 
 export function siddurTree(schema, parts) {

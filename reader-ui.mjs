@@ -11,12 +11,12 @@ export const defaults = {
   theme:'auto', font:22, region:'Israel',
   readingTheme:'auto', fontFace:'serif', width:45, spacing:1.85, justify:false,
   addressStyle:'numbers', vocalization:'all', dayPaper:'#fff7e6', nightPaper:'#081a2c',
-  dayInk:'', nightInk:'', arrows:'toolbar', arrowLayout:'split', autoPosition:true
+  dayInk:'', nightInk:'', arrows:'edge', arrowLayout:'both', autoPosition:true, speechRate:1
 }
 
 export const readFields = [
   'readingTheme','font','fontFace','width','spacing','justify','addressStyle','vocalization',
-  'dayPaper','nightPaper','arrows','arrowLayout','autoPosition'
+  'dayPaper','nightPaper','arrows','arrowLayout','autoPosition','speechRate'
 ]
 
 const systemDark = matchMedia('(prefers-color-scheme: dark)')
@@ -27,7 +27,7 @@ const brightness = color => {
 }
 const controlInk = color => brightness(color) > .179 ? '#000000' : '#ffffff'
 const paperColor = (color, fallback) => /^#[0-9a-f]{6}$/i.test(color) ? color : fallback
-const fonts = {system:'system-ui,sans-serif', serif:'Georgia,"Times New Roman",serif', sans:'Arial,sans-serif'}
+const fonts = {system:'system-ui,sans-serif', serif:'Georgia,"Times New Roman",serif', sans:'Arial,sans-serif', david_libre:'Kiduman David Libre,serif', semi_stam:'Kiduman SemiStam,serif'}
 
 export function readerNight(prefs) {
   if (prefs.readingTheme === 'day') return false

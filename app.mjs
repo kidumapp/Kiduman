@@ -1,7 +1,9 @@
-import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs'
-import {addressFor, browserTasks, completeTask, connection, disconnect, pair, queue, remote, studyId, syncedStudies, synchronize} from './sync.mjs?v=2'
+import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=4'
+import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=4'
 
-import {applyDesign, defaults, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=3'
+import {applyDesign, defaults, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=4'
+
+import {commentaries, onkelos, passageRefs, torahReferences} from './reader-content.mjs?v=4'
 
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
@@ -124,6 +126,7 @@ async function tasks(ticket, date = localDate(zone())) {
   view.append(label)
   const grid = node('div', '', {className:'grid'})
   for (const task of tasks) {
+    if (task.kind === 'REMINDER') continue
     if (date < (task.date || task.startsOn || '')) continue
     const key = task.reset === 'NEVER' ? 'once' : date
     const completion = task.completions.find(record => record.occurrenceKey === key)
@@ -147,16 +150,112 @@ async function tasks(ticket, date = localDate(zone())) {
   else view.append(grid)
 }
 
+const reminderPrefix = 'local-reminder:'
+let reminderCheck
+
+async function localReminders() {
+  const stored = await keys(reminderPrefix,reminderPrefix + '\uffff')
+  return (await Promise.all(stored.map(read))).filter(Boolean)
+}
+
+function reminderDate(at) {
+  return new Intl.DateTimeFormat('he-IL',{dateStyle:'short',timeStyle:'short'}).format(at)
+}
+
+async function checkReminders() {
+  if (reminderCheck) return reminderCheck
+  reminderCheck = (async () => {
+    for (const item of await localReminders()) {
+      if (item.delivered || item.at > Date.now()) continue
+      await write(reminderPrefix + item.id,{...item,delivered:true})
+      status('תזכורת · ' + item.title)
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const registration = await navigator.serviceWorker?.getRegistration()
+        await registration?.showNotification(item.title,{tag:item.id,icon:'./kiduman.png'}).catch(() => {})
+      }
+    }
+  })().finally(() => { reminderCheck = null })
+  return reminderCheck
+}
+
+async function reminders(ticket) {
+  heading('תזכורות')
+  const form = node('form','',{className:'controls inline'})
+  const subject = node('input','',{required:true,maxLength:120,placeholder:'כותרת לתזכורת'})
+  subject.setAttribute('aria-label','כותרת לתזכורת')
+  const when = node('input','',{required:true,type:'datetime-local'})
+  when.setAttribute('aria-label','תאריך ושעת תזכורת')
+  const submit = node('button','הוסף תזכורת',{className:'primary',type:'submit'})
+  form.append(subject,when,submit)
+  view.append(form)
+  form.onsubmit = event => {
+    event.preventDefault()
+    protect(async () => {
+      const at = new Date(when.value).getTime()
+      const title = subject.value.trim()
+      if (!title || !Number.isFinite(at) || at <= Date.now() || at > Date.now() + 366 * 86400000)
+        throw new Error('בחר כותרת וזמן עתידי בטווח של שנה.')
+      const linked = await connection()
+      const item = {id:'web-reminder:' + crypto.randomUUID(),kind:'REMINDER',title,at,
+        timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,channel:linked?.kind === 'browser' ? linked.channel : ''}
+      submit.disabled = true
+      try {
+        await write(reminderPrefix + item.id,item)
+        await show()
+        status(item.channel ? 'התזכורת נשמרה וממתינה לסנכרון.' : 'התזכורת נשמרה בדפדפן.')
+        if (item.channel) scheduleSync()
+      } finally { submit.disabled = false }
+    })
+  }
+  if ('Notification' in window && Notification.permission === 'default') view.append(button('הפעל התראות בדפדפן', async () => {
+    if (await Notification.requestPermission() === 'granted') status('התראות הדפדפן הופעלו.')
+  }))
+  view.append(node('p','הדפדפן מציג תזכורות כשהאתר פתוח. תזכורות שסונכרנו לטלפון נשמרות גם באפליקציה.',{className:'meta'}))
+  const items = await localReminders()
+  const cloud = await browserTasks().catch(() => null)
+  if (ticket !== revision) return
+  const byId = new Map(items.map(item => [item.id,item]))
+  for (const item of cloud || []) if (item.kind === 'REMINDER') byId.set(item.id,item)
+  const list = node('div','',{className:'grid'})
+  for (const item of [...byId.values()].sort((a,b) => a.at - b.at)) {
+    const card = node('div','',{className:'card'})
+    card.append(node('h2',item.title),node('p',item.at ? reminderDate(item.at) : '',{className:'meta'}))
+    if (cloud?.some(other => other.id === item.id)) {
+      const done = item.completions.find(record => record.occurrenceKey === 'once')?.completed ?? item.completed
+      card.append(button(done ? 'ביטול ביצוע' : 'סימון ביצוע',async () => {
+        await completeTask(item.id,'once',!done)
+        await show()
+      }))
+    } else {
+      card.append(button('הסר מהדפדפן',async () => {
+        await remove(reminderPrefix + item.id)
+        await show()
+      }))
+    }
+    list.append(card)
+  }
+  view.append(list.childElementCount ? list : node('p','אין תזכורות להצגה.'))
+}
+
+async function syncBrowserReminders() {
+  const paired = await connection()
+  if (paired?.kind !== 'browser') return
+  for (const item of await localReminders()) {
+    if (item.channel !== paired.channel || item.synced || item.at <= Date.now()) continue
+    if (await createReminder(item)) await write(reminderPrefix + item.id,{...item,synced:true})
+  }
+}
+
 async function syncedStudy(ticket, parameter) {
   heading('הלימודים שלי')
   const connected = await connection()
   if (ticket !== revision) return
   if (!connected) {
     view.append(node('p', 'כדי לראות את הלימודים מהטלפון, פתח הגדרות וצמד את הדפדפן.'))
-    view.append(button('צימוד וסנכרון', () => $('#prefs').click()))
+    view.append(button('צימוד וסנכרון', () => $('#prefs').click()), link('קטלוג הלימוד היומי של ספריא','#daily'))
     return
   }
-  const records = await syncedStudies()
+  const [records, programs] = await Promise.all([syncedStudies(),syncedPrograms()])
   if (ticket !== revision) return
   if (parameter) {
     const id = decodeURIComponent(parameter)
@@ -188,33 +287,47 @@ async function syncedStudy(ticket, parameter) {
     const parts = await Promise.all(record.refs.map(text))
     const entry = {
       ...parts[0], rows: parts.flatMap(part => part.rows), title: record.title || parts[0].title,
-      type:'daily', program:record.program, day:record.date, syncTab:record.tab,
+      type:'daily', program:record.program, day:record.date, syncTab:record.tab, sourceRefs:record.refs,
       ref:record.refs.join(' / '), region:preferences.region
     }
     await renderReader(entry, ticket, true)
     return
   }
+  view.append(button('סנכרון עם הטלפון', async () => {
+    const linked = await synchronize()
+    if (linked) await show()
+  }), ' · ', link('קטלוג הלימוד היומי של ספריא','#daily'))
   const latest = new Map()
+  const pinned = programs && new Set(programs.map(program => program.id))
   records.sort((a,b) => (b.position?.updatedAt ?? b.updatedAt) - (a.position?.updatedAt ?? a.updatedAt))
   for (const record of records) {
+    if (pinned && !pinned.has(record.program)) continue
     const track = JSON.stringify([record.program, record.tab])
     if (!latest.has(track)) latest.set(track, record)
   }
-  if (!latest.size) {
+  if (!latest.size && !programs?.length) {
     view.append(node('p', 'כדי להציג כאן לימוד, פתח אותו בקידומן בטלפון ובצע סנכרון.'))
     return
   }
   const grid = node('div', '', {className:'grid'})
+  const seenPrograms = new Set()
   for (const record of latest.values()) {
+    seenPrograms.add(record.program)
     grid.append(card(record.title || record.refs[0], record.date + ' · ' + record.refs.join(' · '),
       () => { location.hash = 'continue/' + encodeURIComponent(studyId(record)) }))
+  }
+  for (const program of programs || []) {
+    if (seenPrograms.has(program.id)) continue
+    const day = localDate(zone())
+    const id = JSON.stringify([program.id,day,'source'])
+    grid.append(card(program.name,day,() => { location.hash = 'continue/' + encodeURIComponent(id) }))
   }
   view.append(grid)
 }
 
 async function daily(ticket, date, program) {
   dailyDate = date || dailyDate
-  heading('לימוד יומי')
+  heading('קטלוג הלימוד היומי של ספריא')
   const dateLabel = node('label', 'תאריך לימוד')
   const dateInput = node('input', '', {type:'date', value:dailyDate})
   dateLabel.append(dateInput)
@@ -398,7 +511,9 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const mark = synced?.updatedAt > (local?.updatedAt || 0)
     ? anchorOffset(raw, synced) ?? (entry.syncTab && synced.offset < raw.length ? synced.offset : local?.offset ?? 0) : local?.offset || 0
   const state = {entry, article, rows, raw, key, mark, viewed:false, page:0,
-    bookmarkKey:'bookmarks:' + id, bookmarks:await read('bookmarks:' + id) || []}
+    refs:passageRefs(entry),mode:'source',extras:new Map(),
+    bookmarkKey:'bookmarks:' + id, bookmarks:await read('bookmarks:' + id) || [],
+    modeKey:'reading-mode:' + id}
   if (ticket !== revision) return
   reader = state
   if (!personal) {
@@ -467,7 +582,16 @@ async function renderReader(entry, ticket, keepHeading = false) {
     view.append(attribution)
   }
   renderPage(state, rowOffset(rows, mark))
-  if (entry.syncTab && mark) requestAnimationFrame(() => { if (reader === state) jumpTo(state, mark) })
+  const mode = await read(state.modeKey)
+  if (ticket !== revision || reader !== state) return
+  if (mode && !state.viewed) {
+    state.mode = mode.mode
+    state.extras = new Map(mode.extras)
+    state.selectedCommentaries = mode.commentaries
+    state.article.dataset.readingMode = mode.mode
+    renderPage(state,rowOffset(rows,mark))
+  }
+  if (mark && !state.viewed) requestAnimationFrame(() => { if (reader === state) jumpTo(state, mark) })
 }
 
 function renderPage(state, target) {
@@ -479,11 +603,22 @@ function renderPage(state, target) {
     paragraph.dataset.offset = row.offset
     const address = readingAddress(row.address, preferences.addressStyle)
     if (address) paragraph.append(node('bdi', address, {className:'address'}), document.createTextNode(' '))
-    paragraph.append(document.createTextNode(readingText(row.text, preferences.vocalization) || '\u00a0'))
+    const source = node('span',readingText(row.text,preferences.vocalization) || '\u00a0',{className:'reader-source'})
+    paragraph.append(source)
     const bookmark = state.bookmarks.find(item => item.offset === row.offset)
+    if (row.offset === state.mark) paragraph.classList.add('last-position')
     if (bookmark) {
       paragraph.classList.add('bookmarked')
       paragraph.title = bookmark.name
+    }
+    if (state.mode === 'shnayim') {
+      paragraph.append(node('span',readingText(row.text,preferences.vocalization),{className:'reader-repeat'}))
+    }
+    const extras = state.extras.get(start + state.article.childElementCount)
+    for (const [name,value] of extras || []) {
+      const note = node('span','',{className:'reader-note'})
+      note.append(node('strong',name + ' · '),document.createTextNode(readingText(value,preferences.vocalization)))
+      paragraph.append(note)
     }
     state.article.append(paragraph)
   })
@@ -502,6 +637,7 @@ async function pin(state, offset) {
   if (offset === state.mark && state.viewed) return
   state.mark = offset
   state.viewed = true
+  for (const row of state.article.children) row.classList.toggle('last-position', Number(row.dataset.offset) === offset)
   state.jump.disabled = !offset
   updateReaderProgress(state)
   await write(state.key, {offset, updatedAt:Date.now()})
@@ -525,6 +661,9 @@ window.addEventListener('scroll', () => {
 
 async function show() {
   const ticket = ++revision
+  stopSpeech()
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+  if (ticket !== revision) return
   reader = null
   document.body.classList.remove('reading-fullscreen')
   status()
@@ -544,6 +683,7 @@ async function show() {
     await daily(ticket, date, program && decodeURIComponent(program))
     return
   }
+  if (route === 'reminders') return reminders(ticket)
   if (route === 'tasks') return tasks(ticket, /^\d{4}-\d{2}-\d{2}$/.test(parameter) ? parameter : undefined)
   if (route === 'continue') return syncedStudy(ticket, parameter)
   if (route === 'siddur') return siddur(ticket)
@@ -665,45 +805,175 @@ function pageScroll(state, direction) {
 
 function renderArrows(state) {
   const group = state.arrows
-  const up = () => button('↑', () => pageScroll(state,-1))
-  const down = () => button('↓', () => pageScroll(state,1))
-  const side = (name, controls) => {
-    const container = node('div','',{className:name})
-    container.append(...controls)
+  const arrows = {up:() => button('↑',() => pageScroll(state,-1)),
+    down:() => button('↓',() => pageScroll(state,1))}
+  const side = (name, directions) => {
+    const container = node('div','',{className:name + (directions.length === 2 ? ' split' : '')})
+    container.append(...directions.map(direction => arrows[direction]()))
     return container
   }
-  group.className = 'reader-arrows ' + (preferences.arrows === 'edge' ? 'at-edge' : 'inline')
   const layout = preferences.arrowLayout
+  const pairs = {
+    split:[['up'],['down']], reverse:[['down'],['up']],
+    right:[['up','down'],[]], left:[[],['up','down']], both:[['up','down'],['up','down']]
+  }
+  const [right,left] = pairs[layout] || pairs.both
+  group.className = 'reader-arrows ' + (preferences.arrows === 'edge' ? 'at-edge' : 'inline')
   group.replaceChildren(...(preferences.arrows === 'toolbar'
-    ? [up(),down()] : [side('right',layout === 'both' ? [up(),down()] : [layout === 'reverse' ? down() : up()]),
-      side('left',layout === 'both' ? [up(),down()] : [layout === 'reverse' ? up() : down()])]))
+    ? [arrows.up(),arrows.down()] : [side('right',right),side('left',left)]))
   for (const control of group.querySelectorAll('button')) {
     control.setAttribute('aria-label',control.textContent === '↑' ? 'גלילה למעלה' : 'גלילה למטה')
   }
 }
 
+let speaking = null
+
+function stopSpeech() {
+  if (!speaking) return
+  const current = speaking
+  speaking = null
+  speechSynthesis.cancel()
+  current.control.textContent = 'הקראה'
+}
+
+function readAloud(state, control) {
+  if (speaking?.state === state) { stopSpeech(); return }
+  if (!('speechSynthesis' in window)) throw new Error('הדפדפן הזה לא תומך בהקראה.')
+  stopSpeech()
+  const voice = speechSynthesis.getVoices().find(voice => /^(he|iw)(-|$)/i.test(voice.lang))
+  if (!voice && speechSynthesis.getVoices().length) throw new Error('אין קול עברי זמין בדפדפן הזה.')
+  const session = {state, control, index:rowOffset(state.rows,currentOffset(state))}
+  speaking = session
+  control.textContent = 'עצירת הקראה'
+  const speakNext = () => {
+    if (speaking !== session) return
+    if (session.index >= state.rows.length) { stopSpeech(); return }
+    const row = state.rows[session.index]
+    const extras = (state.extras.get(session.index) || []).map(([,text]) => text)
+    const value = [row.text, ...(state.mode === 'shnayim' ? [row.text] : []), ...extras].join(' ')
+    const speech = new SpeechSynthesisUtterance(value)
+    speech.lang = 'he-IL'
+    if (voice) speech.voice = voice
+    speech.rate = preferences.speechRate
+    speech.onend = () => { session.index++; speakNext() }
+    speech.onerror = () => {
+      if (speaking !== session) return
+      stopSpeech()
+      status('לא ניתן להמשיך בהקראה. בדוק שקול עברי מותקן במכשיר.')
+    }
+    jumpTo(state,row.offset)
+    protect(() => pin(state,row.offset))
+    speechSynthesis.speak(speech)
+  }
+  status('הקראה במהירות ×' + preferences.speechRate)
+  speakNext()
+}
+
+async function readingCommentaries(state) {
+  const content = readerDialog('פירושים')
+  const report = node('p','טוען פירושים…',{role:'status'})
+  content.append(report)
+  try {
+    const available = await commentaries(state.refs,state.rows)
+    if (reader !== state || !toolsDialog.open) return
+    if (!available.size) { report.textContent = 'ספריא לא החזירה פירושים מתאימים לקטע הזה.'; return }
+    const choices = node('div','',{className:'commentary-choices'})
+    const selected = new Set(state.selectedCommentaries || [])
+    const list = [...available.keys()].sort((a,b) => a.localeCompare(b,'he'))
+    for (const name of list) {
+      const check = node('input','',{type:'checkbox',checked:selected.has(name)})
+      check.onchange = () => check.checked ? selected.add(name) : selected.delete(name)
+      const label = node('label','',{className:'check'})
+      label.append(check,document.createTextNode(name))
+      choices.append(label)
+    }
+    const apply = async (mode) => {
+      if (mode !== 'source' && !selected.size) { report.textContent = 'בחר פירוש אחד לפחות.'; return }
+      const result = new Map()
+      if (mode !== 'source') for (const name of selected) {
+        for (const [index,comments] of available.get(name) || []) {
+          const lines = result.get(index) || []
+          lines.push(...comments.map(item => [name,item.text]))
+          result.set(index,lines)
+        }
+      }
+      state.selectedCommentaries = [...selected]
+      await setReadingMode(state,mode,result)
+      toolsDialog.close()
+    }
+    report.textContent = ''
+    const actions = node('div','',{className:'inline'})
+    actions.append(button('הצג פירושים',() => apply('commentaries')),
+      button('פירוש משולב',() => apply('combined')),button('חזרה למקור',() => apply('source')))
+    content.append(choices,actions)
+  } catch (error) {
+    report.textContent = error.message || 'טעינת הפירושים נכשלה.'
+  }
+}
+
+async function setReadingMode(state, mode, extras) {
+  const offset = currentOffset(state)
+  stopSpeech()
+  state.mode = mode
+  state.extras = extras
+  state.article.dataset.readingMode = mode
+  jumpTo(state,offset)
+  if (mode === 'source') await remove(state.modeKey)
+  else await write(state.modeKey,{mode,extras:[...extras],commentaries:state.selectedCommentaries || []})
+}
+
+function updateFullscreen(state, active) {
+  document.body.classList.toggle('reading-fullscreen',active)
+  state.fullscreen.textContent = active ? 'יציאה ממסך מלא' : 'מסך מלא'
+  state.fullscreen.setAttribute('aria-pressed',String(active))
+}
+
+async function toggleFullscreen(state) {
+  const active = !document.body.classList.contains('reading-fullscreen')
+  if (active && document.documentElement.requestFullscreen) {
+    await document.documentElement.requestFullscreen().catch(() => {})
+  } else if (!active && document.fullscreenElement) {
+    await document.exitFullscreen().catch(() => {})
+  }
+  updateFullscreen(state,active)
+}
+
+document.addEventListener('fullscreenchange',() => {
+  if (reader && !document.fullscreenElement) updateFullscreen(reader,false)
+})
+
 function readingTools(state) {
   state.arrows = node('div','')
   renderArrows(state)
-  const fullscreen = button('מסך מלא', () => {
-    const active = document.body.classList.toggle('reading-fullscreen')
-    fullscreen.textContent = active ? 'יציאה ממסך מלא' : 'מסך מלא'
-    fullscreen.setAttribute('aria-pressed', String(active))
-  })
-  fullscreen.setAttribute('aria-pressed','false')
-  return [
+  const controls = [
     button('הגדרות קריאה', () => readingSettings.showModal()),
     button('חיפוש בטקסט', () => findInReader(state)),
     button('סימניות', () => showBookmarks(state)),
-    button('שמור מיקום', async () => { await pin(state,currentOffset(state)); status('מיקום הקריאה נשמר.') }),
-    fullscreen, state.arrows
+    button('סימון מיקום', async () => { await pin(state,currentOffset(state)); status('מיקום הקריאה סומן.') })
   ]
+  if (state.refs.length) controls.push(button('פירושים',() => readingCommentaries(state)))
+  if (torahReferences(state.refs)) {
+    const mikra = button('שניים מקרא ואחד תרגום', async () => {
+      if (state.mode === 'shnayim') { await setReadingMode(state,'source',new Map()); return }
+      mikra.disabled = true
+      try {
+        const translation = await onkelos(state.refs,state.rows)
+        if (reader !== state) return
+        await setReadingMode(state,'shnayim',new Map([...translation].map(([row,text]) => [row,[['אונקלוס',text]]])))
+      } finally { mikra.disabled = false }
+    })
+    controls.push(mikra)
+  }
+  const aloud = button('הקראה', () => readAloud(state,aloud))
+  state.fullscreen = button('מסך מלא', () => toggleFullscreen(state))
+  state.fullscreen.setAttribute('aria-pressed','false')
+  return [...controls,aloud,state.fullscreen,state.arrows]
 }
 
 window.addEventListener('keydown', event => {
   if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return
   if (document.body.classList.contains('reading-fullscreen')) {
-    view.querySelector('button[aria-pressed="true"]')?.click()
+    if (reader) protect(() => toggleFullscreen(reader))
   }
 })
 
@@ -745,6 +1015,7 @@ async function syncNow() {
   await syncUI('מסנכרן…')
   try {
     const synced = await synchronize()
+    if (synced) await syncBrowserReminders()
     await syncUI(synced ? 'הסנכרון הושלם.' : undefined)
     if (synced && (location.hash === '#continue' || location.hash.startsWith('#tasks'))) await show()
   } catch (error) {
@@ -771,12 +1042,12 @@ $('#pair-form').onsubmit = event => {
     try { await pair(code); input.value = '' } catch (error) { await syncUI(error.message); return }
     finally { submit.disabled = false }
     await syncNow()
-    if (reader && !reader.viewed) await show()
+    if (location.hash === '#continue' || reader && !reader.viewed) await show()
   })
 }
 $('#sync-now').onclick = () => protect(async () => {
   await syncNow()
-  if (reader && !reader.viewed) await show()
+  if (location.hash === '#continue' || reader && !reader.viewed) await show()
 })
 $('#disconnect').onclick = () => protect(async () => { await disconnect(); await syncUI() })
 $('#reading-prefs').onclick = () => { settings.close(); readingSettings.showModal() }
@@ -817,9 +1088,13 @@ for (const [selector, property] of [['#theme', 'theme'], ['#region', 'region']])
 window.addEventListener('hashchange', () => protect(show))
 window.addEventListener('online', scheduleSync)
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && navigator.onLine) scheduleSync()
+  if (document.visibilityState !== 'visible') return
+  protect(checkReminders)
+  if (navigator.onLine) scheduleSync()
 })
 navigator.serviceWorker?.register('./sw.js').catch(() => {})
 applyPreferences()
+setInterval(() => protect(checkReminders),15000)
 await protect(show)
+await protect(checkReminders)
 if (await connection().catch(() => null) && navigator.onLine) scheduleSync()

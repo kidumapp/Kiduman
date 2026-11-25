@@ -1,4 +1,4 @@
-import {keys, read, remove, write} from './data.mjs'
+import {keys, read, remove, write} from './data.mjs?v=4'
 
 const base = 'https://jewish-watch-sync.jewish-watch.workers.dev'
 const pairing = 'reading-pairing'
@@ -46,6 +46,17 @@ export async function browserTasks() {
   return result.tasks
 }
 
+export async function createReminder(reminder) {
+  const current = await connection()
+  if (current?.kind !== 'browser') return false
+  await request('/v1/browser-tasks/' + current.channel + '/reminders',{
+    token:current.token,body:{
+      id:reminder.id,title:reminder.title,at:reminder.at,timeZone:reminder.timeZone
+    }
+  })
+  return true
+}
+
 export async function completeTask(id, occurrenceKey, completed) {
   const current = await connection()
   if (current?.kind !== 'browser') throw new Error('כדי לסמן משימות, יש לצמד מחדש עם קוד צימוד מהטלפון.')
@@ -91,6 +102,11 @@ export async function remote(address) {
 
 export const studyId = id
 
+export async function syncedPrograms() {
+  const current = await connection()
+  return current ? (await read('programs:' + current.channel))?.programs : undefined
+}
+
 export async function syncedStudies() {
   const current = await connection()
   if (!current) return []
@@ -133,6 +149,11 @@ async function runSync() {
       if (newer(row, await read(positionKey))) await write(positionKey, row)
     }
     for (const row of page.handoff || []) {
+      if (row.kind === 'study-programs') {
+        const programsKey = 'programs:' + channel
+        if (newer(row,await read(programsKey))) await write(programsKey,row)
+        continue
+      }
       if (row.kind !== 'study-reference') continue
       const referenceKey = studyKey(channel, row)
       if (newer(row, await read(referenceKey))) await write(referenceKey, row)
