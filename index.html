@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f5">
+  <meta name="description" content="ספרייה, לימוד יומי וסידור בקידומן">
+  <title>קידומן</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#main">דילוג לתוכן</a>
+  <header class="top"><div class="top-inner">
+    <a class="brand" href="#library"><span aria-hidden="true">ק</span> קידומן</a>
+    <button type="button" id="prefs">הגדרות</button>
+  </div></header>
+  <div class="layout">
+    <aside>
+      <nav aria-label="ניווט ראשי">
+        <a href="#library">ספרייה</a><a href="#daily">לימוד יומי</a>
+        <a href="#siddur">סידור</a><a href="#saved">הספרים שלי</a>
+      </nav>
+      <div class="date" id="today"></div>
+    </aside>
+    <main id="main">
+      <div id="notice" role="status" aria-live="polite"></div>
+      <section id="view" aria-labelledby="view-title"></section>
+    </main>
+  </div>
+  <dialog id="settings">
+    <form method="dialog"><button class="close" aria-label="סגירה">סגירה</button></form>
+    <h2>הגדרות</h2>
+    <label>תצוגה <select id="theme"><option value="auto">לפי המכשיר</option><option value="light">בהירה</option><option value="dark">כהה</option></select></label>
+    <label>גודל טקסט בקריאה <input id="font-size" type="range" min="17" max="34" step="1"></label>
+    <label>לוח לימוד <select id="region"><option value="Israel">ישראל</option><option value="diaspora">חוץ לארץ</option></select></label>
+    <section class="pair-section" aria-labelledby="pair-title">
+      <h3 id="pair-title">סנכרון קריאה</h3>
+      <p id="sync-state" role="status"></p>
+      <form id="pair-form">
+        <label for="pair-code">קוד צימוד קריאה מקידומן בטלפון</label>
+        <div class="inline"><input id="pair-code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" required autocomplete="off" dir="ltr"><button class="primary">חיבור</button></div>
+      </form>
+      <div class="inline" id="sync-actions" hidden><button type="button" id="sync-now">סנכרון עכשיו</button><button type="button" id="disconnect">ניתוק</button></div>
+    </section>
+  </dialog>
+</body>
+</html>
