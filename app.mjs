@@ -1,6 +1,6 @@
 import {bundledPrayer, displayPrayerRow, loadSiddurCalendar, prayerClock, prayerNames, siddurDay, weekdayPrayers} from './bundled-siddur.mjs'
 import {accentedQuotes, prayerLinks, sourcesForRow} from './siddur-sources.mjs?v=2'
-import {readerIcon} from './reader-icons.mjs?v=3'
+import {readerIcon} from './reader-icons.mjs?v=4'
 import {api, calendar, fingerprint, keys, localDate, read, remove, text, write} from './data.mjs?v=5'
 import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=6'
 
@@ -106,13 +106,116 @@ function followingDay(day, delta = 1) {
   return date.toISOString().slice(0,10)
 }
 
-function nextStudyDay(entry) {
-  const day = followingDay(entry.day)
-  if (!entry.syncTab) {
-    location.hash = dailyLink(entry.program, day)
-    return
+function studyDayLink(entry, day) {
+  return entry.syncTab ? '#continue/' + encodeURIComponent(JSON.stringify([entry.program,day,entry.syncTab]))
+    : dailyLink(entry.program,day)
+}
+
+function doneKey(entry,day) {
+  return 'done:' + entry.program + ':' + day
+}
+
+async function studyDone(entry,day) {
+  const [local, synced] = await Promise.all([read(doneKey(entry,day)), remote(addressFor({...entry,day},true))])
+  return Number(synced?.updatedAt > (local?.updatedAt || 0) ? synced.offset : local?.offset) === 1
+}
+
+async function writeStudyDone(entry,day,done) {
+  await write(doneKey(entry,day),{offset:Number(done),updatedAt:Date.now()})
+  await queue(addressFor({...entry,day},true),Number(done))
+  scheduleSync()
+}
+
+function studyDateCaption(day) {
+  const date = new Date(day+'T12:00:00Z')
+  const timeZone = 'UTC'
+  const hebrew = new Intl.DateTimeFormat('he-IL-u-ca-hebrew',{timeZone,day:'numeric',month:'long'}).format(date)
+  const today = localDate(zone())
+  const delta = Math.round((date - new Date(today+'T12:00:00Z')) / 86400000)
+  return [hebrew,date.getUTCDate()+'/'+(date.getUTCMonth()+1)+' · '+(delta===0?'היום':delta>0?'+'+delta:'−'+Math.abs(delta))]
+}
+
+function openStudyDate(state) {
+  const {entry}=state
+  const content=readerDialog('בחירת תאריך לימוד')
+  const date=node('input','',{type:'date',value:entry.day,required:true})
+  const done=node('input','',{type:'checkbox',disabled:true})
+  const dateLabel=node('label','תאריך לימוד')
+  const doneLabel=node('label','',{className:'check'})
+  const save=button('שמור',async()=>{
+    const day=date.value
+    save.disabled=true
+    try {
+      if (done.checked!==initial) await writeStudyDone(entry,day,done.checked)
+      toolsDialog.close()
+      if (day!==entry.day) location.hash=studyDayLink(entry,day)
+      else await refreshStudyHeader(state)
+    } finally { save.disabled=false }
+  },'primary')
+  let initial=false, request=0
+  const refresh=async()=>{
+    const sequence=++request
+    const day=date.value
+    done.disabled=save.disabled=true
+    if (!day) return
+    const checked=await studyDone(entry,day)
+    if (sequence!==request || !date.isConnected) return
+    initial=done.checked=checked
+    done.disabled=false
+    save.disabled=false
   }
-  location.hash = 'continue/' + encodeURIComponent(JSON.stringify([entry.program, day, entry.syncTab]))
+  date.onchange=()=>protect(refresh)
+  dateLabel.append(date)
+  doneLabel.append(done,'סימון לימוד ליום שנבחר')
+  content.append(dateLabel,doneLabel,button('היום',()=>{
+    date.value=localDate(zone())
+    return refresh()
+  }),save)
+  return refresh()
+}
+
+async function refreshStudyHeader(state) {
+  const {entry, dayButtons}=state
+  if (!dayButtons) return
+  const today=localDate(zone())
+  const days=[followingDay(entry.day,-1),entry.day,followingDay(entry.day)]
+  const [previous,current,next]=await Promise.all(days.map(day=>studyDone(entry,day)))
+  for (const [index,control] of dayButtons.entries()) {
+    const studied=[previous,next][index]
+    const day=days[index*2]
+    const label=(index?'יום הבא':'יום קודם')+' · '+(day>today?'תאריך עתידי':studied?'נלמד':'טרם נלמד')
+    control.dataset.studyStatus=day>today?'future':studied?'done':'pending'
+    control.setAttribute('aria-label',label)
+    control.title=label
+  }
+  state.studyDone=current
+  state.completion.textContent=current?'ביטול סימון סיום':'סיימתי'
+  state.advance.textContent=current?'מעבר ליום הבא':'סיום ומעבר ליום הבא'
+}
+
+function readerHeader(state) {
+  const {entry}=state
+  const header=node('header','',{className:'reader-toolbar'})
+  const back=iconTool('back','חזרה',()=>{
+    location.hash=entry.type==='daily' ? entry.syncTab?'#continue':'#daily/'+entry.day
+      : entry.bundled?'#siddur/'+entry.edition
+      : {prayer:'#siddur',personal:'#saved',library:'#library'}[entry.type] || '#home'
+  })
+  header.append(back)
+  if (entry.type==='daily') {
+    const [hebrew,civil]=studyDateCaption(entry.day)
+    const date=button('',()=>openStudyDate(state),'reader-date')
+    date.append(node('strong',hebrew),node('small',civil))
+    date.setAttribute('aria-label','בחירת תאריך לימוד · '+hebrew+' · '+civil)
+    state.dayButtons=[-1,1].map(delta=>iconTool(delta<0?'day-previous':'day-next',delta<0?'יום קודם':'יום הבא',()=>{
+      location.hash=studyDayLink(entry,followingDay(entry.day,delta))
+    },'reader-day'))
+    header.append(state.dayButtons[0],date,state.dayButtons[1])
+    state.fullscreenDate=button(hebrew+' · '+civil.split(' · ')[0],()=>openStudyDate(state),'reader-fullscreen-date')
+    state.fullscreenDate.setAttribute('aria-label','בחירת תאריך לימוד · '+hebrew+' · '+civil)
+  } else header.append(node('h1',entry.title,{className:'reader-title'}))
+  header.append(state.fullscreen)
+  return header
 }
 
 async function tasks(ticket, date = localDate(zone())) {
@@ -283,6 +386,8 @@ async function syncedStudy(ticket, parameter) {
       const previous = records.find(item => item.program === program && item.tab === tab &&
         item.nextRefs?.length && followingDay(item.date) === day)
       if (previous) record = {program, date:day, tab, refs:previous.nextRefs}
+      const next = records.find(item=>item.program===program && item.previousRefs?.length && followingDay(day)===item.date)
+      if (!record && next) record={program,date:day,tab,refs:next.previousRefs}
     }
     if (!record) {
       const item = await calendarStudy(program,day)
@@ -327,7 +432,7 @@ async function syncedStudy(ticket, parameter) {
       catch (error) { failure = error.message || 'טעינת הפירוש המסונכרן נכשלה.' }
     }
     if (ticket !== revision) return
-    await renderReader(entry, ticket, true)
+    await renderReader(entry, ticket)
     if (failure && ticket === revision) status(failure)
     return
   }
@@ -394,7 +499,7 @@ async function daily(ticket, date, program) {
       rawSync: !['Parashat Hashavua', 'Haftarah'].includes(program)}
     const passage = await read('saved:' + entryId(entry)) || await text(item.ref)
     if (ticket !== revision) return
-    await renderReader({...passage, ...entry}, ticket, true)
+    await renderReader({...passage, ...entry}, ticket)
     return
   }
   const grid = node('div', '', {className:'grid'})
@@ -626,10 +731,8 @@ function anchorOffset(raw, record) {
   return closest
 }
 
-async function renderReader(entry, ticket, keepHeading = false) {
+async function renderReader(entry, ticket) {
   if (ticket !== revision) return
-  if (!keepHeading) heading(entry.title)
-  else view.append(node('h2', entry.title))
   status()
   let length = 0
   let raw = ''
@@ -681,32 +784,23 @@ async function renderReader(entry, ticket, keepHeading = false) {
     actions.append(saveButton)
   }
 
-  if (entry.type === 'daily') {
-    const address = addressFor(entry, true)
-    const doneKey = 'done:' + entry.program + ':' + entry.day
-    const localDone = await read(doneKey)
-    const remoteDone = await remote(address)
-    if (ticket !== revision) return
-    let done = Number(remoteDone?.updatedAt > (localDone?.updatedAt || 0) ? remoteDone.offset : localDone?.offset) === 1
-    const setDone = async next => {
-      await write(doneKey, {offset:Number(next),updatedAt:Date.now()})
-      await queue(address, Number(next))
-      done = next
-      completion.textContent = done ? 'ביטול סימון סיום' : 'סיימתי'
-      advance.textContent = done ? 'מעבר ליום הבא' : 'סיום ומעבר ליום הבא'
-      scheduleSync()
+  if (entry.type==='daily') {
+    const setDone=async next=>{
+      await writeStudyDone(entry,entry.day,next)
+      await refreshStudyHeader(state)
     }
-    const completion = button(done ? 'ביטול סימון סיום' : 'סיימתי', () => setDone(!done))
-    const advance = button(done ? 'מעבר ליום הבא' : 'סיום ומעבר ליום הבא', async () => {
-      advance.disabled = true
+    state.completion=button('סיימתי',async()=>{
+      state.completion.disabled=true
+      try { await setDone(!state.studyDone) } finally { state.completion.disabled=false }
+    })
+    state.advance=button('סיום ומעבר ליום הבא',async()=>{
+      state.advance.disabled=true
       try {
-        if (!done) await setDone(true)
-        nextStudyDay(entry)
-      } finally {
-        advance.disabled = false
-      }
-    }, 'primary')
-    actions.append(completion, advance)
+        if (!state.studyDone) await setDone(true)
+        location.hash=studyDayLink(entry,followingDay(entry.day))
+      } finally { state.advance.disabled=false }
+    },'primary')
+    actions.append(state.completion,state.advance)
   }
   const jump = button('המשך מהמקום האחרון', () => jumpTo(state, state.mark))
   jump.disabled = !mark
@@ -721,9 +815,16 @@ async function renderReader(entry, ticket, keepHeading = false) {
   readerPanel.append(article)
   state.progress = node('progress', '', {max:100, value:0})
   state.progress.setAttribute('aria-label', 'התקדמות בקריאה')
-  const readerTools = node('div', '', {className:'reader-toolbar'})
-  state.toolbar = readerTools
-  readerTools.append(state.progress, ...readingTools(state))
+  state.progress.className='reader-progress'
+  readingTools(state)
+  state.toolbar=readerHeader(state)
+  if (entry.type==='daily') {
+    state.completion.disabled=state.advance.disabled=true
+    protect(async()=>{
+      await refreshStudyHeader(state)
+      state.completion.disabled=state.advance.disabled=false
+    })
+  }
   const pages = node('div', '', {className:'reader-actions'})
   const previous = button('עמוד קודם', async () => { await pin(state, state.rows[(state.page - 1) * 80].offset); jumpTo(state, state.mark) })
   const next = button('עמוד הבא', async () => { await pin(state, state.rows[(state.page + 1) * 80].offset); jumpTo(state, state.mark) })
@@ -735,7 +836,11 @@ async function renderReader(entry, ticket, keepHeading = false) {
   state.tabs.setAttribute('aria-label','מקור ופירושים')
   state.region = node('div','',{className:'reader-region'})
   state.region.append(state.rail,readerPanel)
-  view.append(actions,readerTools,state.tabs,state.region,pages)
+  view.replaceChildren(state.toolbar)
+  if (entry.type==='daily') view.append(node('h1',entry.title,{className:'daily-reader-title'}))
+  view.append(actions,state.tabs,state.region,pages,state.progress)
+  if (state.fullscreenDate) view.append(state.fullscreenDate)
+  if (entry.type==='daily' || entry.prayer==='bedtimeShema') state.progress.classList.add('show-in-fullscreen')
   if (entry.type==='daily') readerPanel.prepend(button('הצג סוף הלימוד הקודם',() => showPreviousStudy(state),'previous-study'))
   renderArrows(state)
   if (entry.type === 'library' && entry.next) view.append(button('הקטע הבא', () => openRef(entry.next)))
@@ -1007,6 +1112,20 @@ async function showPreviousStudy(state) {
   const content = readerDialog('סוף הלימוד הקודם')
   const report = node('p','טוען את הלימוד הקודם…',{role:'status'})
   content.append(report)
+  const previousDone=button('',async()=>{
+    previousDone.disabled=true
+    try {
+      await writeStudyDone(state.entry,day,!previousStudied)
+      previousStudied=!previousStudied
+      updateCaption()
+      await refreshStudyHeader(state)
+    } finally { previousDone.disabled=false }
+  })
+  let previousStudied=await studyDone(state.entry,day)
+  const updateCaption=()=>{previousDone.textContent=previousStudied?'בטל סימון לימוד קודם':'סמן שהלימוד הקודם נלמד'}
+  if (!toolsDialog.open || !report.isConnected) return
+  updateCaption()
+  content.prepend(previousDone)
   try {
     let refs = state.entry.previousRefs
     if (!refs?.length) {
@@ -1267,8 +1386,7 @@ function positionArrows(state) {
   } else {
     group.style.top = top+shift+'px'
   }
-  const rightEdge = edge ? state.rail.getBoundingClientRect().right : rect.right
-  group.style.right = Math.max(2,document.documentElement.clientWidth-rightEdge-44)+'px'
+  group.style.right = Math.max(2,document.documentElement.clientWidth-state.rail.getBoundingClientRect().right-34)+'px'
 }
 
 function arrowSpace(state,edge) {
@@ -1357,7 +1475,7 @@ function renderArrows(state) {
     group.style.removeProperty('right')
     group.style.removeProperty('top')
     group.style.removeProperty('height')
-    state.toolbar.append(group)
+    state.rail.append(group)
     positionArrows(state)
   }
   for (const control of group.querySelectorAll('button')) {
@@ -1688,6 +1806,8 @@ async function setReadingMode(state, mode, extras, activeTab = 'source', sourceS
 
 function updateFullscreen(state, active) {
   document.body.classList.toggle('reading-fullscreen',active)
+  state.railShortcuts.hidden=!active
+  setToolLabel(state.railExit,active?'exit':'fullscreen',active?'יציאה ממסך מלא':'מסך מלא')
   positionArrows(state)
   setToolLabel(state.fullscreen,active?'exit':'fullscreen',active?'יציאה ממסך מלא':'מסך מלא')
   $('#reader-dialog-exit').hidden = !active
@@ -1697,12 +1817,16 @@ function updateFullscreen(state, active) {
 
 async function toggleFullscreen(state) {
   const active = !document.body.classList.contains('reading-fullscreen')
+  const offset=currentOffset(state)
   if (active && document.documentElement.requestFullscreen) {
     await document.documentElement.requestFullscreen().catch(() => {})
   } else if (!active && document.fullscreenElement) {
     await document.exitFullscreen().catch(() => {})
   }
-  updateFullscreen(state,active)
+  if (reader===state) {
+    updateFullscreen(state,active)
+    jumpTo(state,offset)
+  }
 }
 
 document.addEventListener('fullscreenchange',() => {
@@ -1762,9 +1886,7 @@ function movementTools(state) {
 
 function readerControls(state) {
   const controls = [
-    iconTool('home','בית',readerHome),
-    iconTool(document.body.classList.contains('reading-fullscreen')?'exit':'fullscreen',
-      document.body.classList.contains('reading-fullscreen')?'יציאה ממסך מלא':'מסך מלא',()=>toggleFullscreen(state)),
+    ...(!document.body.classList.contains('reading-fullscreen') ? [iconTool('home','בית',readerHome)] : []),
     iconTool('appearance','הגדרות קריאה',()=>readingSettings.showModal()),
     iconTool('search','חיפוש בטקסט',()=>findInReader(state)),
     iconTool('bookmark','סימניות',()=>showBookmarks(state)),
@@ -1861,10 +1983,13 @@ function readingTools(state) {
     content.append(legend)
   })
   help.setAttribute('aria-haspopup','dialog')
-  rail.append(toggle,help,items)
+  state.railExit=iconTool('exit','יציאה ממסך מלא',()=>toggleFullscreen(state))
+  state.railShortcuts=node('div','',{className:'reader-rail-shortcuts',hidden:true})
+  state.railShortcuts.append(state.railExit,iconTool('home','בית',readerHome))
+  rail.append(state.railShortcuts,toggle,help,items)
   state.rail = rail
   state.railControls = items
-  return [iconTool('home','בית',readerHome,'reader-home'),state.fullscreen,state.arrows,state.aloud]
+
 }
 
 $('#reader-dialog-home').replaceChildren(readerIcon('home'))
@@ -1929,6 +2054,7 @@ async function syncNow() {
     const synced = await synchronize()
     if (synced) await syncBrowserReminders()
     await syncUI(synced ? 'הסנכרון הושלם.' : undefined)
+    if (synced && reader?.dayButtons) await refreshStudyHeader(reader)
     if (synced && (location.hash === '#continue' || location.hash.startsWith('#tasks'))) await show()
   } catch (error) {
     await syncUI(error.message || 'הסנכרון לא הושלם.')

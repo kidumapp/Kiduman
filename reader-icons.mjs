@@ -8,6 +8,9 @@ const page = (left,right) => `M${left} 19V5Q${(left+right)/2} 3 ${right} 7V21Q${
 const fullscreen = 'M8 3H3V8M16 3H21V8M8 21H3V16M16 21H21V16'
 const close = 'M6 6L18 18M18 6L6 18'
 const paths = {
+  back:'M4 12H20L13 5M20 12L13 19',
+  'day-previous':'M7 4L19 12 7 20Z',
+  'day-next':'M17 4L5 12 17 20Z',
   home:'M2 11 12 2 22 11M5 9V22H10V15H14V22H19V9',
   tools:'M5 3V6M5 10V21M12 3V13M12 17V21M19 3V6M19 10V21M3 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0M10 15a2 2 0 1 0 4 0a2 2 0 1 0-4 0M17 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
   fullscreen,exit:fullscreen,close,
@@ -52,6 +55,6 @@ export function readerIcon(name) {
   else if (name==='type') {
     element('path',{d:'M47 -228 50 -179H150V-84L200 -81V-228Z',transform:'translate(17 16) scale(.054 -0.054) translate(-123.5 154.5)',class:'icon-fill'})
     element('path',{d:'M85 767Q48 767 48 810Q48 852 85 852Q123 852 123 810Q123 767 85 767ZM84 646Q46 646 46 689Q46 731 84 731Q122 731 122 689Q122 646 84 646Z',transform:'translate(7 7) scale(.0437 -0.0437) translate(-84.5 -749)',class:'icon-fill'})
-  } else element('path',{d:paths[name]})
+  } else element('path',{d:paths[name],...(name.startsWith('day-')?{class:'icon-fill'}:{})})
   return svg
 }
