@@ -21,6 +21,7 @@ const books = [
   ['ברכות', 'Berakhot 2a', 'תלמוד'], ['משנה תורה', 'Mishneh Torah, Foundations of the Torah 1', 'הלכה']
 ]
 const nusach = [['אשכנז', 'Siddur Ashkenaz'], ['ספרד', 'Siddur Sefard'], ['עדות המזרח', 'Siddur Edot HaMizrach']]
+const travelNusach = new Map(nusach.map(([,name],i)=>[name,['ashkenaz','sefard','mizrach'][i]]))
 let revision = 0
 let reader = null
 let dailyDate = localDate(zone())
@@ -429,13 +430,21 @@ async function siddur(ticket) {
   })
   const controls = node('div', '', {className:'controls inline'})
   label.append(select)
-  controls.append(label)
+  controls.append(label,link('תפילת הדרך','#prayer/travel='+travelNusach.get(selectedNusach)))
   view.append(controls)
   status('טוען תוכן עניינים…')
   const data = await index(selectedNusach)
   if (ticket !== revision) return
   status()
   view.append(...siddurTree(data.schema, [data.title]).map(entry => treeNode(entry)))
+}
+
+async function travelPrayer(nusachKey) {
+  const response = await fetch('./travel-prayer.json')
+  if (!response.ok) throw new Error('תפילת הדרך לא נטענה.')
+  const prayer = (await response.json())[nusachKey]
+  return {type:'prayer',title:'תפילת הדרך',ref:prayer.ref,
+    version:prayer.version,license:prayer.license,rows:[{text:prayer.text}]}
 }
 
 async function saved(ticket) {
@@ -806,7 +815,10 @@ async function show() {
     heading(route === 'prayer' ? 'סידור' : 'קריאה')
     status('טוען טקסט…')
     let entry
-    if (route === 'read' || route === 'prayer') {
+    const travel = route==='prayer' ? new URLSearchParams(parameter).get('travel') : null
+    if (['ashkenaz','sefard','mizrach'].includes(travel)) {
+      entry = await travelPrayer(travel)
+    } else if (route === 'read' || route === 'prayer') {
       const ref = route === 'read' ? decodeURIComponent(parameter) : new URLSearchParams(parameter).get('ref')
       if (!ref) throw new Error('בחר טקסט מהספרייה או מהסידור.')
       const existing = await read('saved:' + entryId({type:route === 'read' ? 'library' : 'prayer', ref}))
@@ -1026,11 +1038,77 @@ function pageScroll(state, direction) {
 }
 
 function positionArrows(state) {
-  if (!state.arrows.classList.contains('at-edge')) return
+  const group = state.arrows
+  const edge = group.classList.contains('at-edge')
+  const center = preferences[edge ? 'edgeArrowCenter' : 'toolbarArrowCenter']
+  group.classList.toggle('docked',!edge && Number.isFinite(center))
+  if (!edge && !group.classList.contains('docked')) return
   const rect = state.article.getBoundingClientRect()
-  state.arrows.style.left = Math.max(2,rect.left-44)+'px'
-  state.arrows.style.right = Math.max(2,document.documentElement.clientWidth-rect.right-44)+'px'
-  state.arrows.style.top = Math.max(0,state.toolbar.getBoundingClientRect().bottom)+'px'
+  const {top,span,margin} = arrowSpace(state,edge)
+  const shift = margin + (center ?? .5) * (span-2*margin)
+  if (edge) {
+    group.style.left = Math.max(2,rect.left-44)+'px'
+    group.style.top = top+'px'
+    group.style.setProperty('--arrow-center',shift+'px')
+  } else {
+    group.style.top = top+shift+'px'
+  }
+  group.style.right = Math.max(2,document.documentElement.clientWidth-rect.right-44)+'px'
+}
+
+function arrowSpace(state,edge) {
+  const top = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
+  const span = Math.max(1,(window.visualViewport?.height || window.innerHeight)-top)
+  return {top,span,margin:Math.min(edge?28:46,span/2)}
+}
+
+function bindArrowDrag(state,group) {
+  let gesture
+  let suppressClick = false
+  group.addEventListener('pointerdown',event => {
+    const button = event.target.closest('button')
+    if (!button || event.button!==0 || !event.isPrimary) return
+    const edge = group.classList.contains('at-edge')
+    const key = edge ? 'edgeArrowCenter' : 'toolbarArrowCenter'
+    const {top,span,margin} = arrowSpace(state,edge)
+    const start = preferences[key]
+    const initial = Number.isFinite(start)
+      ? top+margin+start*(span-2*margin)
+      : edge ? top+span/2 : group.getBoundingClientRect().top+group.offsetHeight/2
+    gesture = {button,key,edge,start,initial,pointer:event.pointerId,y:event.clientY,moved:false}
+    suppressClick = false
+    button.setPointerCapture(event.pointerId)
+  })
+  group.addEventListener('pointermove',event => {
+    if (!gesture || gesture.pointer!==event.pointerId) return
+    const delta = event.clientY-gesture.y
+    if (!gesture.moved && Math.abs(delta)<7) return
+    gesture.moved = true
+    const {top,span,margin} = arrowSpace(state,gesture.edge)
+    preferences[gesture.key] = Math.max(0,Math.min(1,(gesture.initial+delta-top-margin)/Math.max(1,span-2*margin)))
+    positionArrows(state)
+  })
+  const finish = (event,commit) => {
+    if (!gesture || gesture.pointer!==event.pointerId) return
+    const {key,start,moved} = gesture
+    gesture = null
+    if (!moved) return
+    suppressClick = true
+    if (commit) protect(() => write('preferences',preferences))
+    else {
+      preferences[key] = start
+      positionArrows(state)
+    }
+  }
+  group.addEventListener('pointerup',event=>finish(event,true))
+  group.addEventListener('pointercancel',event=>finish(event,false))
+  group.addEventListener('lostpointercapture',event=>finish(event,false))
+  group.addEventListener('click',event=>{
+    if (!suppressClick || event.detail===0) return
+    suppressClick = false
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  },true)
 }
 
 window.addEventListener('resize',()=>{if (reader) positionArrows(reader)})
@@ -1061,9 +1139,12 @@ function renderArrows(state) {
     group.style.removeProperty('right')
     group.style.removeProperty('top')
     state.toolbar.append(group)
+    positionArrows(state)
   }
   for (const control of group.querySelectorAll('button')) {
     control.setAttribute('aria-label',control.textContent === '↑' ? 'גלילה למעלה' : 'גלילה למטה')
+    control.title = 'אפשר לגרור את שני החצים יחד למעלה או למטה'
+    control.replaceChildren(node('span',control.textContent))
   }
 }
 
@@ -1406,6 +1487,7 @@ document.addEventListener('fullscreenchange',() => {
 
 function readingTools(state) {
   state.arrows = node('div','')
+  bindArrowDrag(state,state.arrows)
   const controls = [
     button('הגדרות קריאה', () => readingSettings.showModal()),
     button('חיפוש בטקסט', () => findInReader(state)),

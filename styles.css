@@ -85,7 +85,10 @@ legend{font-weight:700;padding-inline:.35rem}
 .reader-arrows.at-edge div:empty{visibility:hidden}
 .reader-arrows.at-edge button{width:42px;min-height:0;border:0;border-radius:.55rem;color:var(--accent);background:transparent;text-shadow:0 1px var(--paper);font-size:1.3rem}
 .reader-arrows.at-edge div:not(.split) button{height:100%}
-.reader-arrows.at-edge div.split button{height:50%;display:flex;justify-content:center;align-items:flex-end;padding-bottom:8px}
+.reader-arrows.at-edge div:not(.split) button{position:relative}
+.reader-arrows.at-edge div:not(.split) button span{position:absolute;top:var(--arrow-center,50%);left:50%;transform:translate(-50%,-50%)}
+.reader-arrows.at-edge div.split button{height:var(--arrow-center,50%);display:flex;justify-content:center;align-items:flex-end;padding-bottom:8px}
+.reader-arrows.at-edge div.split button+button{height:calc(100% - var(--arrow-center,50%))}
 .reader-arrows.at-edge div.split button+button{align-items:flex-start;padding-top:8px}
 .reader-arrows.at-edge button:hover,.reader-arrows.at-edge button:focus-visible{background:color-mix(in srgb,var(--paper) 85%,transparent)}
 .reader article p.last-position{box-shadow:inset -3px 0 var(--accent);padding-inline-start:.52ch}
@@ -123,6 +126,11 @@ legend{font-weight:700;padding-inline:.35rem}
 .comment-tabs button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:750}
 .reader-arrows.at-edge{z-index:1}
 .reader-arrows.at-edge div{flex:0 0 auto}
+.reader-arrows button{touch-action:none;user-select:none}
+.reader-arrows.inline{display:grid;grid-template-rows:repeat(2,1fr);gap:0}
+.reader-arrows.inline button{height:24px;min-height:0;padding:0;line-height:1}
+.reader-arrows.inline.docked{position:fixed;transform:translateY(-50%);z-index:3}
+.reader-arrows.inline.docked button{height:44px}
 .reader article button.address{display:inline-block;min-height:0;border:0;padding:0;background:transparent;cursor:pointer;text-decoration:underline;text-underline-offset:.15em;vertical-align:baseline}
 .reader article p[data-offset]{position:relative}
 .revealed-line{position:absolute;inset-inline:0;display:block;pointer-events:none;border-radius:.18em;background:color-mix(in srgb,var(--accent) 21%,transparent);box-shadow:inset -3px 0 var(--accent)}
