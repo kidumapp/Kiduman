@@ -156,7 +156,10 @@ async function runSync() {
       }
       if (row.kind !== 'study-reference') continue
       const referenceKey = studyKey(channel, row)
-      if (newer(row, await read(referenceKey))) await write(referenceKey, row)
+      const saved = await read(referenceKey)
+      if (newer(row,saved) || (row.updatedAt===saved?.updatedAt && row.deviceId===saved.deviceId
+        && ((!saved.previousRefs && row.previousRefs) || (!saved.recipe && row.recipe))))
+        await write(referenceKey,row)
     }
     if (page.next && page.next === cursor) throw new Error('השרת החזיר דף סנכרון כפול.')
     cursor = page.next

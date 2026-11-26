@@ -121,3 +121,9 @@ legend{font-weight:700;padding-inline:.35rem}
 .comment-tabs{display:flex;gap:.35rem;overflow-x:auto;padding:.35rem .1rem;margin-block:.15rem}
 .comment-tabs button{white-space:nowrap;min-height:36px;padding:.2rem .6rem}
 .comment-tabs button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:750}
+.reader-arrows.at-edge{z-index:3}
+.reader-arrows.at-edge div{flex:0 0 auto}
+.reader article button.address{display:inline-block;min-height:0;border:0;padding:0;background:transparent;cursor:pointer;text-decoration:underline;text-underline-offset:.15em;vertical-align:baseline}
+.reader article p[data-offset]{position:relative}
+.revealed-line{position:absolute;inset-inline:0;display:block;pointer-events:none;border-radius:.18em;background:color-mix(in srgb,var(--accent) 21%,transparent);box-shadow:inset -3px 0 var(--accent)}
+.previous-study{display:block;margin:0 auto .85rem;color:var(--accent)}

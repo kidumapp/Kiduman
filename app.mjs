@@ -1,5 +1,5 @@
 import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=5'
-import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=5'
+import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=6'
 
 import {applyDesign, defaults, fonts, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=6'
 
@@ -95,9 +95,9 @@ function calendarProgram(item) {
     ? 'Mishnah' : item.title?.en || item.category
 }
 
-function followingDay(day) {
+function followingDay(day, delta = 1) {
   const date = new Date(day + 'T12:00:00Z')
-  date.setUTCDate(date.getUTCDate() + 1)
+  date.setUTCDate(date.getUTCDate() + delta)
   return date.toISOString().slice(0,10)
 }
 
@@ -246,6 +246,15 @@ async function syncBrowserReminders() {
   }
 }
 
+async function calendarStudy(program, day) {
+  if (['aliyah','tehillim'].includes(program)) return
+  const calendarId = {mishnah:'Mishnah', 'Mishnah Yomit':'Mishnah'}[program] || program
+  const items = (await calendar(day, preferences.region, zone())).calendar_items
+  return items.find(item => item.ref && calendarProgram(item) === calendarId)
+}
+
+const isStudySource = item => item.tab.split('|',1)[0] === 'source'
+
 async function syncedStudy(ticket, parameter) {
   heading('הלימודים שלי')
   const connected = await connection()
@@ -258,24 +267,21 @@ async function syncedStudy(ticket, parameter) {
   const [records, programs] = await Promise.all([syncedStudies(),syncedPrograms()])
   if (ticket !== revision) return
   if (parameter) {
-    const id = decodeURIComponent(parameter)
-    const [program, day, tab] = JSON.parse(id)
+    const [program, day, tab] = JSON.parse(decodeURIComponent(parameter))
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('תאריך הלימוד אינו תקין.')
-    let record = records.find(item => studyId(item) === id)
+    const siblings = records.filter(item => item.program === program && item.date === day)
+    const source = siblings.find(item => item.tab === tab && isStudySource(item)) ||
+      siblings.filter(isStudySource).sort((a,b)=>b.updatedAt-a.updatedAt)[0]
+    const requested = siblings.find(item => item.tab === tab)
+    let record = source || requested || siblings[0]
     if (!record) {
       const previous = records.find(item => item.program === program && item.tab === tab &&
         item.nextRefs?.length && followingDay(item.date) === day)
       if (previous) record = {program, date:day, tab, refs:previous.nextRefs}
     }
     if (!record) {
-      const calendarId = {mishnah:'Mishnah', 'Mishnah Yomit':'Mishnah'}[program] || program
-      if (!['aliyah','tehillim'].includes(program)) {
-        const items = (await calendar(day, preferences.region, zone())).calendar_items
-        if (items.some(item => item.ref && calendarProgram(item) === calendarId)) {
-          const item = items.find(item => item.ref && calendarProgram(item) === calendarId)
-          record = {program, date:day, tab:'source', refs:[item.ref], title:item.title?.he}
-        }
-      }
+      const item = await calendarStudy(program,day)
+      if (item) record = {program, date:day, tab:'source', refs:[item.ref], title:item.title?.he}
       if (ticket !== revision) return
       if (!record) {
         view.append(node('p', 'מראה המקום ליום ' + day + ' עדיין לא סונכרן מהטלפון.'))
@@ -286,16 +292,33 @@ async function syncedStudy(ticket, parameter) {
     status('טוען את קטע הלימוד…')
     const parts = await Promise.all(record.refs.map(text))
     const entry = {
-      ...parts[0], rows: parts.flatMap(part => part.rows), title: record.title || parts[0].title,
-      type:'daily', program:record.program, day:record.date, syncTab:record.tab, sourceRefs:record.refs,
+      ...parts[0], rows: parts.flatMap(part => part.rows),
+      title:source?.title || programs?.find(item=>item.id===program)?.name || parts[0].title,
+      type:'daily', program, day, syncTab:source?.tab || 'source', sourceRefs:record.refs,
       ref:record.refs.join(' / '), region:preferences.region
     }
+    const yesterday = followingDay(day,-1)
+    entry.previousRefs = source?.previousRefs || records.find(item=>item.program===program &&
+      item.date===yesterday && isStudySource(item))?.refs ||
+      records.find(item=>item.program===program && item.date===yesterday)?.refs
+    entry.phoneTabs = [...(source?.recipe?.components || []),...siblings
+      .filter(item=>item.recipe?.layout==='commentary').flatMap(item=>item.recipe.components)]
+    const combinations = siblings.filter(item=>item.recipe && !['source','commentary'].includes(item.recipe.layout))
+      .sort((a,b)=>Number(b===requested)-Number(a===requested) || b.updatedAt-a.updatedAt)
+    const editions = new Set()
+    entry.syncedRecipes = combinations.filter(item=>{
+      const id = item.tab.split('|',1)[0]
+      if (editions.has(id)) return false
+      editions.add(id)
+      return true
+    }).map(item=>[item.tab,{...item.recipe,title:item.title}])
     let failure
-    entry.phoneTabs=record.recipe?.layout==='source' ? record.recipe.components
-      : records.find(item=>item.program===record.program&&item.date===record.date&&item.recipe?.layout==='source')?.recipe.components
-    if (record.recipe) {
-      if (record.recipe.layout!=='source') entry.syncedRecipe = {...record.recipe,title:record.title}
-      try { if (entry.syncedRecipe) entry.syncedMode = await syncedComposition(entry.syncedRecipe,record.refs,entry.rows) }
+    if (requested?.recipe && requested.recipe.layout!=='source') {
+      try {
+        entry.syncedMode = await syncedComposition(requested.recipe,record.refs,entry.rows)
+        entry.openingTab = requested.recipe.layout==='commentary'
+          ? 'comment:'+requested.recipe.components[0].id : requested.tab
+      }
       catch (error) { failure = error.message || 'טעינת הפירוש המסונכרן נכשלה.' }
     }
     if (ticket !== revision) return
@@ -312,8 +335,7 @@ async function syncedStudy(ticket, parameter) {
   records.sort((a,b) => (b.position?.updatedAt ?? b.updatedAt) - (a.position?.updatedAt ?? a.updatedAt))
   for (const record of records) {
     if (pinned && !pinned.has(record.program)) continue
-    const track = JSON.stringify([record.program, record.tab])
-    if (!latest.has(track)) latest.set(track, record)
+    if (!latest.has(record.program)) latest.set(record.program, record)
   }
   if (!latest.size && !programs?.length) {
     view.append(node('p', 'הלימודים יופיעו כאן אחרי שגרסת קידומן המעודכנת בטלפון תשלח אותם. בטלפון פתח צימוד וסנכרון, לחץ על סנכרון עכשיו ואז לחץ כאן על סנכרון עם הטלפון.'))
@@ -323,7 +345,10 @@ async function syncedStudy(ticket, parameter) {
   const seenPrograms = new Set()
   for (const record of latest.values()) {
     seenPrograms.add(record.program)
-    grid.append(card(record.title || record.refs[0], record.date + ' · ' + record.refs.join(' · '),
+    const source = records.find(item=>item.program===record.program && item.date===record.date && isStudySource(item))
+    const label = source?.title || programs?.find(item=>item.id===record.program)?.name ||
+      (isStudySource(record) ? record.title : record.refs[0])
+    grid.append(card(label || record.refs[0], record.date + ' · ' + record.refs.join(' · '),
       () => { location.hash = 'continue/' + encodeURIComponent(studyId(record)) }))
   }
   for (const program of programs || []) {
@@ -514,7 +539,9 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const id = entryId(entry)
   const key = 'progress:' + id
   const local = await read(key)
-  const synced = await remote(addressFor(entry))
+  const openingSyncTab = entry.openingTab?.startsWith('comment:')
+    ? 'commentary:'+entry.openingTab.slice(8) : entry.openingTab || entry.syncTab
+  const synced = await remote(addressFor({...entry,syncTab:openingSyncTab}))
   if (ticket !== revision) return
   const available = !personal ? await read('saved:' + id) : null
   if (ticket !== revision) return
@@ -523,8 +550,8 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const state = {entry, article, rows, raw, key, mark, viewed:false, page:0,
     refs:passageRefs(entry),mode:entry.syncedMode?.mode || 'source',extras:entry.syncedMode?.extras || new Map(),
     sourceStyle:entry.syncedMode?.sourceStyle,
-    recipe:entry.syncedRecipe, activeTab:entry.syncedMode
-      ? (entry.syncedRecipe.layout==='commentary'?'comment:'+entry.syncedRecipe.components[0].id:'combined') : 'source',
+    recipes:new Map(entry.syncedRecipes), edits:{}, layout:readerPanel,
+    activeTab:entry.openingTab || 'source',
     phoneTabs:entry.phoneTabs || [], selectedCommentaries:[], tabsKey:'reader-tabs:' + id,
     bookmarkKey:'bookmarks:' + id, bookmarks:await read('bookmarks:' + id) || [],
     modeKey:'reading-mode:' + id}
@@ -594,6 +621,8 @@ async function renderReader(entry, ticket, keepHeading = false) {
   state.tabs.setAttribute('role','group')
   state.tabs.setAttribute('aria-label','מקור ופירושים')
   view.append(actions, readerTools, state.tabs, readerPanel, pages)
+  if (entry.type==='daily') readerPanel.prepend(button('הצג סוף הלימוד הקודם',() => showPreviousStudy(state),'previous-study'))
+  renderArrows(state)
   if (entry.type === 'library' && entry.next) view.append(button('הקטע הבא', () => openRef(entry.next)))
   if (entry.version) {
     const attribution = node('p', entry.version + (entry.license ? ' · ' + entry.license : '') + ' · ', {className:'meta'})
@@ -605,7 +634,9 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const [mode,savedTabs] = await Promise.all([read(state.modeKey),read(state.tabsKey)])
   if (ticket !== revision || reader !== state) return
   if (savedTabs) {
-    state.recipe = savedTabs.recipe || state.recipe
+    state.recipe = savedTabs.recipe
+    state.edits = savedTabs.edits || {}
+    for (const [tab,recipe] of state.recipes) state.recipes.set(tab,state.edits[tab] || recipe)
     state.selectedCommentaries = savedTabs.selected || []
     if (savedTabs.overrideSelection) { state.phoneTabs=[];state.overrideSelection=true }
   } else if (mode?.commentaries) state.selectedCommentaries = mode.commentaries
@@ -614,7 +645,8 @@ async function renderReader(entry, ticket, keepHeading = false) {
     || (savedTab==='all-commentaries' && state.selectedCommentaries.length > 0)
     || state.selectedCommentaries.some(name=>savedTab==='selected:'+name)
     || [...(state.recipe?.components || []),...state.phoneTabs].some(part=>savedTab==='comment:'+part.id)
-    || (savedTab==='combined' && savedTabs?.recipe?.layout && savedTabs.recipe.layout!=='commentary')
+    || state.recipes.has(savedTab)
+    || (savedTab==='combined' && Boolean(state.recipe))
   if (mode && knownTab && !state.viewed) {
     state.mode = mode.mode
     state.extras = new Map(mode.extras)
@@ -651,7 +683,13 @@ function renderPage(state, target) {
     const paragraph = node('p', '')
     paragraph.dataset.offset = row.offset
     const address = readingAddress(row.address, preferences.addressStyle)
-    if (address) paragraph.append(node('bdi', address, {className:'address'}), document.createTextNode(' '))
+    if (address) {
+      const marker = row.sourceRef && state.refs.length
+        ? button(address,() => passageCommentaries(state,row.offset),'address')
+        : node('bdi',address,{className:'address'})
+      if (marker.tagName==='BUTTON') marker.setAttribute('aria-label','פירושים · '+address)
+      paragraph.append(marker,document.createTextNode(' '))
+    }
     const bookmark = state.bookmarks.find(item => item.offset === row.offset)
     if (row.offset === state.mark) paragraph.classList.add('last-position')
     if (bookmark) {
@@ -713,7 +751,10 @@ async function pin(state, offset) {
   updateReaderProgress(state)
   await write(state.key, {offset, updatedAt:Date.now()})
   const anchor = state.entry.type === 'personal' ? '' : state.raw.slice(offset, offset + 100).replace(/[\u0591-\u05c7]/g, '').replace(/\s+/g, ' ').trim()
-  await queue(addressFor(state.entry), offset, anchor)
+  const syncTab = state.recipes.has(state.activeTab) ? state.activeTab
+    : state.activeTab.startsWith('comment:') ? 'commentary:'+state.activeTab.slice(8)
+    : state.entry.syncTab
+  if (state.activeTab!=='combined') await queue(addressFor({...state.entry,syncTab}),offset,anchor)
   scheduleSync()
 }
 
@@ -795,8 +836,93 @@ function readerDialog(title) {
   $('#reader-tool-title').textContent = title
   const content = $('#reader-tool-content')
   content.replaceChildren()
-  toolsDialog.showModal()
+  if (!toolsDialog.open) toolsDialog.showModal()
   return content
+}
+
+async function showPreviousStudy(state) {
+  const day = followingDay(state.entry.day,-1)
+  const content = readerDialog('סוף הלימוד הקודם')
+  const report = node('p','טוען את הלימוד הקודם…',{role:'status'})
+  content.append(report)
+  try {
+    let refs = state.entry.previousRefs
+    if (!refs?.length) {
+      const item = await calendarStudy(state.entry.program,day)
+      if (item) refs = [item.ref]
+    }
+    if (!refs?.length) {
+      report.textContent = 'מראה המקום של הלימוד הקודם עדיין לא סונכרן מהטלפון.'
+      return
+    }
+    const parts = await Promise.all(refs.map(text))
+    const tail = parts.flatMap(part=>part.rows).slice(-8)
+    if (!report.isConnected) return
+    if (!tail.length) { report.textContent = 'לא נמצא טקסט ללימוד הקודם.'; return }
+    const panel = node('div','',{className:'reader'})
+    const article = node('article','')
+    for (const row of tail) {
+      const address = readingAddress(row.address,preferences.addressStyle)
+      const paragraph = node('p',displayReadingText(row.text))
+      if (address) paragraph.prepend(node('bdi',address+' ',{className:'address'}))
+      article.append(paragraph)
+    }
+    panel.append(article)
+    report.textContent = day + ' · ' + refs.join(' · ')
+    content.append(panel)
+  } catch (error) { report.textContent = error.message || 'טעינת הלימוד הקודם נכשלה.' }
+}
+
+async function passageCommentaries(state, offset = currentOffset(state)) {
+  const passages = state.rows.filter(row=>row.sourceRef)
+  if (!passages.length) return
+  const start = state.rows[rowOffset(state.rows,offset)]
+  const content = readerDialog('פירושים לפי פסוק')
+  const select = node('select','')
+  select.setAttribute('aria-label','פסוק או קטע')
+  select.append(...passages.map((row,i)=>node('option',
+    readingAddress(row.address,preferences.addressStyle) || row.sourceRef,{value:String(i)})))
+  select.value = String(Math.max(0,passages.indexOf(start)))
+  const panel = node('div','',{className:'reader'})
+  const article = node('article','')
+  panel.append(article)
+  const report = node('p','',{role:'status'})
+  content.append(select,panel,report)
+  let request = 0
+  const load = async () => {
+    const ticket = ++request
+    const row = passages[Number(select.value)]
+    article.replaceChildren(node('p',displayReadingText(row.text)))
+    report.textContent = 'טוען פירושים…'
+    try {
+      const available = await commentaries([row.sourceRef],[row])
+      const selectedNames = new Set([...state.selectedCommentaries,...state.phoneTabs.map(part=>part.name)])
+      const ordered = [...available.keys()].sort((a,b)=>
+        Number(selectedNames.has(b))-Number(selectedNames.has(a)) || a.localeCompare(b,'he'))
+      if (ticket !== request || !report.isConnected) return
+      report.textContent = ordered.length ? '' : 'אין פירושים זמינים לפסוק הזה.'
+      for (const name of ordered) {
+        const item = node('details','')
+        item.append(node('summary',name))
+        item.addEventListener('toggle',async () => {
+          if (!item.open || item.childElementCount > 1) return
+          const body = node('p','טוען…')
+          item.append(body)
+          try {
+            const result = (await selectCommentaries(available,[name])).get(0)
+            body.textContent = result?.map(([,value])=>displayReadingText(value)).join('\n\n') ||
+              'לא התקבל טקסט לפירוש הזה.'
+          } catch (error) { body.textContent = error.message }
+        })
+        content.insertBefore(item,report)
+      }
+    } catch (error) { if (ticket === request) report.textContent = error.message }
+  }
+  select.onchange = () => {
+    for (const detail of content.querySelectorAll('details')) detail.remove()
+    return load()
+  }
+  await load()
 }
 
 function findInReader(state) {
@@ -865,16 +991,49 @@ function showBookmarks(state) {
 }
 
 function pageScroll(state, direction) {
-  const at = rowOffset(state.rows,currentOffset(state))
-  const visible = [...state.article.children].filter(row => {
-    const rect = row.getBoundingClientRect()
-    return rect.bottom > Math.max(0,state.toolbar.getBoundingClientRect().bottom) && rect.top < window.innerHeight
-  }).length
-  const target = Math.max(0,Math.min(at + direction * Math.max(1,visible),state.rows.length - 1))
-  const offset = state.rows[target].offset
-  jumpTo(state,offset)
-  return pin(state,offset)
+  const top = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
+  const bottom = window.visualViewport?.height || window.innerHeight
+  const article = state.article.getBoundingClientRect()
+  const height = Math.max(1,bottom-top)
+  const lastPage = Math.floor((state.rows.length-1)/80)
+  if (direction>0 && article.bottom <= bottom+1 && state.page<lastPage) {
+    jumpTo(state,state.rows[(state.page+1)*80].offset)
+  } else if (direction<0 && article.top >= top-1 && state.page>0) {
+    renderPage(state,(state.page-1)*80)
+    window.scrollBy({top:state.article.getBoundingClientRect().bottom-bottom,behavior:'instant'})
+  } else {
+    const left = direction>0 ? Math.max(0,article.bottom-bottom) : Math.max(0,top-article.top)
+    window.scrollBy({top:direction*Math.min(height,left),behavior:'instant'})
+  }
+  const edge = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
+  const row = [...state.article.children].find(item=>{
+    const rect = item.getBoundingClientRect()
+    return rect.height && rect.bottom>edge && rect.top<bottom
+  })
+  if (!row) return
+  state.article.querySelector('.revealed-line')?.remove()
+  const range = document.createRange()
+  range.selectNodeContents(row)
+  const lines = [...range.getClientRects()].filter(rect=>rect.height && rect.bottom>edge && rect.top<bottom)
+  const line = lines.sort((a,b)=>a.top-b.top)[0]
+  if (line) {
+    const marker = node('span','',{className:'revealed-line'})
+    marker.setAttribute('aria-hidden','true')
+    marker.style.top = Math.max(0,line.top-row.getBoundingClientRect().top)+'px'
+    marker.style.height = line.height+'px'
+    row.append(marker)
+  }
+  return pin(state,Number(row.dataset.offset))
 }
+
+function positionArrows(state) {
+  if (!state.arrows.classList.contains('at-edge')) return
+  const rect = state.article.getBoundingClientRect()
+  state.arrows.style.left = Math.max(2,rect.left-44)+'px'
+  state.arrows.style.right = Math.max(2,document.documentElement.clientWidth-rect.right-44)+'px'
+}
+
+window.addEventListener('resize',()=>{if (reader) positionArrows(reader)})
 
 function renderArrows(state) {
   const group = state.arrows
@@ -894,6 +1053,14 @@ function renderArrows(state) {
   group.className = 'reader-arrows ' + (preferences.arrows === 'edge' ? 'at-edge' : 'inline')
   group.replaceChildren(...(preferences.arrows === 'toolbar'
     ? [arrows.up(),arrows.down()] : [side('right',right),side('left',left)]))
+  if (preferences.arrows==='edge') {
+    state.layout.prepend(group)
+    positionArrows(state)
+  } else {
+    group.style.removeProperty('left')
+    group.style.removeProperty('right')
+    state.toolbar.append(group)
+  }
   for (const control of group.querySelectorAll('button')) {
     control.setAttribute('aria-label',control.textContent === '↑' ? 'גלילה למעלה' : 'גלילה למטה')
   }
@@ -1012,8 +1179,13 @@ async function readingCommentaries(state) {
 }
 
 async function saveCommentTabs(state) {
-  await write(state.tabsKey,{selected:state.selectedCommentaries,recipe:state.recipe,overrideSelection:state.overrideSelection})
+  await write(state.tabsKey,{selected:state.selectedCommentaries,recipe:state.recipe,edits:state.edits,
+    overrideSelection:state.overrideSelection})
   refreshCommentTabs(state)
+}
+
+function combinedRecipe(state, tab = state.activeTab) {
+  return tab==='combined' ? state.recipe : state.recipes.get(tab)
 }
 
 function refreshCommentTabs(state) {
@@ -1028,8 +1200,8 @@ function refreshCommentTabs(state) {
     state.tabs.append(tab)
   }
   state.tabs.replaceChildren()
-  state.article.style.fontFamily = state.activeTab==='combined' ? fonts[state.recipe?.font] || '' : ''
-  state.tabs.hidden = !state.selectedCommentaries.length && !state.recipe && !state.phoneTabs.length
+  state.article.style.fontFamily = fonts[combinedRecipe(state)?.font] || ''
+  state.tabs.hidden = !state.selectedCommentaries.length && !state.recipe && !state.phoneTabs.length && !state.recipes.size
   if (state.tabs.hidden) return
   add('מקור','source',() => setReadingMode(state,'source',new Map()))
   for (const name of state.selectedCommentaries) {
@@ -1057,22 +1229,25 @@ function refreshCommentTabs(state) {
       if (reader===state) await setReadingMode(state,result.mode,result.extras,id)
     })
   }
-  if (state.recipe && state.recipe.layout!=='commentary') {
-    add(state.recipe.title || 'פירוש משולב','combined',async () => {
-      const result=await syncedComposition(state.recipe,state.refs,state.rows)
-      if (reader===state) await setReadingMode(state,result.mode,result.extras,'combined',result.sourceStyle)
+  const recipes = [...state.recipes]
+  if (state.recipe && state.recipe.layout!=='commentary') recipes.push(['combined',state.recipe])
+  for (const [id,recipe] of recipes) {
+    add(recipe.title || 'פירוש משולב',id,async () => {
+      const result=await syncedComposition(recipe,state.refs,state.rows)
+      if (reader===state) await setReadingMode(state,result.mode,result.extras,id,result.sourceStyle)
     })
   }
+  if (combinedRecipe(state)) state.tabs.append(button('עריכת משולב',() => editComposition(state,undefined,state.activeTab)))
 }
 
-async function editComposition(state,available) {
-  const content=readerDialog(state.recipe&&state.recipe.layout!=='commentary'?'עריכת פירוש משולב':'יצירת פירוש משולב')
+async function editComposition(state,available, tab = 'combined') {
+  const old = combinedRecipe(state,tab)
+  const content=readerDialog(old?'עריכת פירוש משולב':'יצירת פירוש משולב')
   const feedback=node('p','טוען פירושים…',{role:'status'})
   content.append(feedback)
   try {
-    available ||= await commentaries(state.refs,state.rows)
-    if (reader!==state || !toolsDialog.open) return
-    const old=state.recipe?.layout==='commentary' ? null : state.recipe
+    available ||= await commentaries(state.refs,state.rows).catch(error=>{if (!old) throw error;return new Map()})
+    if (reader!==state || !toolsDialog.open || !feedback.isConnected) return
     const candidates=new Map()
     for (const [name,byRow] of available) {
       const id=[...byRow.values()].flat().find(link=>link.id)?.id
@@ -1172,9 +1347,12 @@ async function editComposition(state,available) {
           content.append(preview);feedback.textContent='תצוגה מקדימה';preview.scrollIntoView({block:'nearest'})
           return
         }
-        state.recipe=recipe
+        if (state.recipes.has(tab)) {
+          state.edits[tab]=recipe
+          state.recipes.set(tab,recipe)
+        } else state.recipe=recipe
         await saveCommentTabs(state)
-        await setReadingMode(state,result.mode,result.extras,'combined',result.sourceStyle)
+        await setReadingMode(state,result.mode,result.extras,tab,result.sourceStyle)
         toolsDialog.close()
       } catch(error) { feedback.textContent=error.message }
       finally { save.disabled=previewButton.disabled=false }
@@ -1206,6 +1384,7 @@ async function setReadingMode(state, mode, extras, activeTab = 'source', sourceS
 
 function updateFullscreen(state, active) {
   document.body.classList.toggle('reading-fullscreen',active)
+  positionArrows(state)
   state.fullscreen.textContent = active ? 'יציאה ממסך מלא' : 'מסך מלא'
   state.fullscreen.setAttribute('aria-pressed',String(active))
 }
@@ -1226,15 +1405,16 @@ document.addEventListener('fullscreenchange',() => {
 
 function readingTools(state) {
   state.arrows = node('div','')
-  renderArrows(state)
   const controls = [
     button('הגדרות קריאה', () => readingSettings.showModal()),
     button('חיפוש בטקסט', () => findInReader(state)),
     button('סימניות', () => showBookmarks(state)),
     button('סימון מיקום', async () => { await pin(state,currentOffset(state)); status('מיקום הקריאה סומן.') })
   ]
-  if (state.refs.length) controls.push(button('פירושים',() => readingCommentaries(state)),
-    button('עריכת או יצירת פירוש משולב',() => editComposition(state)))
+  if (state.refs.length) controls.push(button('בחירת פירושים לטאבים',() => readingCommentaries(state)),
+    button('פירושים לפי פסוק',() => passageCommentaries(state)),
+    button('פירוש משולב',() => editComposition(state,undefined,combinedRecipe(state)?state.activeTab:'combined')))
+  if (state.entry.type==='daily') controls.push(button('הצג סוף הלימוד הקודם',() => showPreviousStudy(state)))
   if (torahReferences(state.refs)) {
     const mikra = button('שניים מקרא ואחד תרגום', async () => {
       if (state.mode === 'shnayim') { await setReadingMode(state,'source',new Map()); return }
@@ -1293,6 +1473,7 @@ async function saveDesign(property) {
   if (!reader) return
   if (['addressStyle','vocalization'].includes(property)) jumpTo(reader,offset)
   if (['arrows','arrowLayout'].includes(property)) renderArrows(reader)
+  if (property==='width') positionArrows(reader)
 }
 
 
