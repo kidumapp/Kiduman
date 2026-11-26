@@ -26,6 +26,14 @@ export function sourcesForRow(links, row) {
 
 const words = value=>[...value.matchAll(/[\u05d0-\u05ea][\u05d0-\u05ea\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7]*/gu)]
 const letters = value=>value.replace(/[^\u05d0-\u05ea]/gu,'')
+const cantillation = /[\u0591-\u05af]/gu
+
+function transferAccents(word, verseWord) {
+  const source = verseWord.split(/(?=[\u05d0-\u05ea])/u)
+  return word.split(/(?=[\u05d0-\u05ea])/u).map((letter,index)=>
+    letter.replace(cantillation,'')+(source[index].match(cantillation)||[]).join('')
+  ).join('').normalize('NFC')
+}
 
 export function matchCantillation(passage,verse) {
   const source = words(verse)
@@ -47,7 +55,7 @@ export function matchCantillation(passage,verse) {
   let value='', cursor=start
   for (let k=0;k<best;k++) {
     const word=target[i+k]
-    value+=passage.slice(cursor,word.index)+source[j+k][0]
+    value+=passage.slice(cursor,word.index)+transferAccents(word[0],source[j+k][0])
     cursor=word.index+word[0].length
   }
   return /[\u0591-\u05af]/u.test(value) ? [{start,end,value}] : []

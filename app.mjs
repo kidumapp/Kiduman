@@ -1,4 +1,4 @@
-import {accentedQuotes, prayerLinks, sourcesForRow} from './siddur-sources.mjs?v=1'
+import {accentedQuotes, prayerLinks, sourcesForRow} from './siddur-sources.mjs?v=2'
 import {readerIcon} from './reader-icons.mjs?v=1'
 import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=5'
 import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=6'
