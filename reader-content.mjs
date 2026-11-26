@@ -158,5 +158,5 @@ export async function syncedComposition(recipe, refs, rows) {
     }
     if (!count) throw new Error('ספריא לא החזירה את הפירוש ' + component.name + ' לקטע הזה.')
   }
-  return {mode:recipe.layout==='commentary'?'commentaries':'combined',extras,sourceStyle:recipe.sourceStyle}
+  return {mode:recipe.layout==='commentary'?'commentaries':'combined',extras,sourceStyle:recipe.sourceStyle,font:recipe.font}
 }

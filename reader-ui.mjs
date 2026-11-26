@@ -27,7 +27,7 @@ const brightness = color => {
 }
 const controlInk = color => brightness(color) > .179 ? '#000000' : '#ffffff'
 const paperColor = (color, fallback) => /^#[0-9a-f]{6}$/i.test(color) ? color : fallback
-const fonts = {system:'system-ui,sans-serif', serif:'Georgia,"Times New Roman",serif', sans:'Arial,sans-serif', david_libre:'Kiduman David Libre,serif', semi_stam:'Kiduman SemiStam,serif'}
+export const fonts = {system:'system-ui,sans-serif', serif:'Georgia,"Times New Roman",serif', sans:'Arial,sans-serif', david_libre:'Kiduman David Libre,serif', semi_stam:'Kiduman SemiStam,serif'}
 
 export function readerNight(prefs) {
   if (prefs.readingTheme === 'day') return false

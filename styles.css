@@ -118,3 +118,6 @@ legend{font-weight:700;padding-inline:.35rem}
 }
 .reader article p.speech-row{background:color-mix(in srgb,var(--accent) 20%,var(--reader-paper));outline:2px solid var(--accent);outline-offset:3px;border-radius:.25rem}
 .reader-note.inline-note{display:inline;border:0;padding-inline:.28em;margin:0}
+.comment-tabs{display:flex;gap:.35rem;overflow-x:auto;padding:.35rem .1rem;margin-block:.15rem}
+.comment-tabs button{white-space:nowrap;min-height:36px;padding:.2rem .6rem}
+.comment-tabs button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:750}

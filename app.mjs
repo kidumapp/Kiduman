@@ -1,9 +1,9 @@
 import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=5'
 import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=5'
 
-import {applyDesign, defaults, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=5'
+import {applyDesign, defaults, fonts, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=6'
 
-import {commentaries, onkelos, passageRefs, selectCommentaries, syncedComposition, torahReferences} from './reader-content.mjs?v=6'
+import {commentaries, onkelos, passageRefs, selectCommentaries, syncedComposition, torahReferences} from './reader-content.mjs?v=7'
 
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
@@ -291,8 +291,11 @@ async function syncedStudy(ticket, parameter) {
       ref:record.refs.join(' / '), region:preferences.region
     }
     let failure
+    entry.phoneTabs=record.recipe?.layout==='source' ? record.recipe.components
+      : records.find(item=>item.program===record.program&&item.date===record.date&&item.recipe?.layout==='source')?.recipe.components
     if (record.recipe) {
-      try { entry.syncedMode = await syncedComposition(record.recipe,record.refs,entry.rows) }
+      if (record.recipe.layout!=='source') entry.syncedRecipe = {...record.recipe,title:record.title}
+      try { if (entry.syncedRecipe) entry.syncedMode = await syncedComposition(entry.syncedRecipe,record.refs,entry.rows) }
       catch (error) { failure = error.message || 'טעינת הפירוש המסונכרן נכשלה.' }
     }
     if (ticket !== revision) return
@@ -520,6 +523,9 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const state = {entry, article, rows, raw, key, mark, viewed:false, page:0,
     refs:passageRefs(entry),mode:entry.syncedMode?.mode || 'source',extras:entry.syncedMode?.extras || new Map(),
     sourceStyle:entry.syncedMode?.sourceStyle,
+    recipe:entry.syncedRecipe, activeTab:entry.syncedMode
+      ? (entry.syncedRecipe.layout==='commentary'?'comment:'+entry.syncedRecipe.components[0].id:'combined') : 'source',
+    phoneTabs:entry.phoneTabs || [], selectedCommentaries:[], tabsKey:'reader-tabs:' + id,
     bookmarkKey:'bookmarks:' + id, bookmarks:await read('bookmarks:' + id) || [],
     modeKey:'reading-mode:' + id}
   if (ticket !== revision) return
@@ -584,7 +590,10 @@ async function renderReader(entry, ticket, keepHeading = false) {
   state.pager = {previous, next}
   pages.append(previous, next)
   pages.hidden = rows.length <= 80
-  view.append(actions, readerTools, readerPanel, pages)
+  state.tabs = node('div','',{className:'comment-tabs'})
+  state.tabs.setAttribute('role','group')
+  state.tabs.setAttribute('aria-label','מקור ופירושים')
+  view.append(actions, readerTools, state.tabs, readerPanel, pages)
   if (entry.type === 'library' && entry.next) view.append(button('הקטע הבא', () => openRef(entry.next)))
   if (entry.version) {
     const attribution = node('p', entry.version + (entry.license ? ' · ' + entry.license : '') + ' · ', {className:'meta'})
@@ -593,15 +602,28 @@ async function renderReader(entry, ticket, keepHeading = false) {
   }
   state.article.dataset.readingMode = state.mode
   renderPage(state, rowOffset(rows, mark))
-  const mode = await read(state.modeKey)
+  const [mode,savedTabs] = await Promise.all([read(state.modeKey),read(state.tabsKey)])
   if (ticket !== revision || reader !== state) return
-  if (mode && !entry.syncedMode && !state.viewed) {
+  if (savedTabs) {
+    state.recipe = savedTabs.recipe || state.recipe
+    state.selectedCommentaries = savedTabs.selected || []
+    if (savedTabs.overrideSelection) { state.phoneTabs=[];state.overrideSelection=true }
+  } else if (mode?.commentaries) state.selectedCommentaries = mode.commentaries
+  const savedTab=mode?.activeTab || (mode?.mode==='combined'?'combined':'source')
+  const knownTab=savedTab==='source'
+    || (savedTab==='all-commentaries' && state.selectedCommentaries.length > 0)
+    || state.selectedCommentaries.some(name=>savedTab==='selected:'+name)
+    || [...(state.recipe?.components || []),...state.phoneTabs].some(part=>savedTab==='comment:'+part.id)
+    || (savedTab==='combined' && savedTabs?.recipe?.layout && savedTabs.recipe.layout!=='commentary')
+  if (mode && knownTab && !state.viewed) {
     state.mode = mode.mode
     state.extras = new Map(mode.extras)
-    state.selectedCommentaries = mode.commentaries
+    state.activeTab = savedTab
+    state.sourceStyle = mode.sourceStyle
     state.article.dataset.readingMode = mode.mode
     renderPage(state,rowOffset(rows,mark))
   }
+  refreshCommentTabs(state)
   if (mark && !state.viewed) requestAnimationFrame(() => { if (reader === state) jumpTo(state, mark) })
 }
 
@@ -939,7 +961,7 @@ async function readingCommentaries(state) {
     if (reader !== state || !toolsDialog.open) return
     if (!available.size) { report.textContent = 'ספריא לא החזירה פירושים מתאימים לקטע הזה.'; return }
     const choices = node('div','',{className:'commentary-choices'})
-    const selected = new Set(state.selectedCommentaries || [])
+    const selected = new Set([...state.selectedCommentaries,...state.phoneTabs.map(tab=>tab.name)])
     const list = [...available.keys()].sort((a,b) => a.localeCompare(b,'he'))
     for (const name of list) {
       const check = node('input','',{type:'checkbox',checked:selected.has(name)})
@@ -959,31 +981,227 @@ async function readingCommentaries(state) {
         if (reader !== state || !toolsDialog.open) return
         if (mode !== 'source' && !result.size) { report.textContent = 'לא ניתן לטעון את הטקסט של הפירושים האלה.'; return }
         state.selectedCommentaries = [...selected]
-        await setReadingMode(state,mode,result)
+        await saveCommentTabs(state)
+        await setReadingMode(state,mode,result,'all-commentaries')
         toolsDialog.close()
       } finally {
         for (const control of buttons) control.disabled = false
       }
     }
     report.textContent = ''
-    actions.append(button('הצג פירושים',() => apply('commentaries')),
-      button('פירוש משולב',() => apply('combined')),button('חזרה למקור',() => apply('source')))
+    actions.append(button('שמור בחירה',async () => {
+      state.selectedCommentaries=[...selected]
+      state.phoneTabs=[]
+      state.overrideSelection=true
+      await saveCommentTabs(state)
+      if ((state.activeTab.startsWith('selected:') && !selected.has(state.activeTab.slice(9)))
+        || (state.activeTab==='all-commentaries' && !selected.size)
+        || (state.activeTab.startsWith('comment:') && !state.recipe?.components.some(part=>state.activeTab==='comment:'+part.id)))
+        await setReadingMode(state,'source',new Map())
+      toolsDialog.close()
+    }),button('הצג פירושים',() => apply('commentaries')),
+      button('יצירת פירוש משולב',() => {
+        state.selectedCommentaries=[...selected]
+        toolsDialog.close()
+        return editComposition(state,available)
+      }))
     content.append(choices,actions)
   } catch (error) {
     report.textContent = error.name === 'TimeoutError' ? 'ספריא לא השיבה בזמן. נסה לפתוח קטע קצר יותר.' : error.message || 'טעינת הפירושים נכשלה.'
   }
 }
 
-async function setReadingMode(state, mode, extras) {
+async function saveCommentTabs(state) {
+  await write(state.tabsKey,{selected:state.selectedCommentaries,recipe:state.recipe,overrideSelection:state.overrideSelection})
+  refreshCommentTabs(state)
+}
+
+function refreshCommentTabs(state) {
+  if (!state.tabs) return
+  const add = (label,id,run) => {
+    const tab=button(label,async () => {
+      if (state.activeTab===id) return
+      tab.disabled=true
+      try { await run() } finally { tab.disabled=false }
+    })
+    tab.setAttribute('aria-pressed',String(id===state.activeTab))
+    state.tabs.append(tab)
+  }
+  state.tabs.replaceChildren()
+  state.article.style.fontFamily = state.activeTab==='combined' ? fonts[state.recipe?.font] || '' : ''
+  state.tabs.hidden = !state.selectedCommentaries.length && !state.recipe && !state.phoneTabs.length
+  if (state.tabs.hidden) return
+  add('מקור','source',() => setReadingMode(state,'source',new Map()))
+  for (const name of state.selectedCommentaries) {
+    add(name,'selected:'+name,async () => {
+      const result=await selectCommentaries(await commentaries(state.refs,state.rows),[name])
+      if (!result.size) throw new Error('ספריא לא החזירה טקסט לפירוש הזה.')
+      if (reader===state) await setReadingMode(state,'commentaries',result,'selected:'+name)
+    })
+  }
+  if (state.selectedCommentaries.length) add('כל הפירושים','all-commentaries',async () => {
+    const result=await selectCommentaries(await commentaries(state.refs,state.rows),state.selectedCommentaries)
+    if (!result.size) throw new Error('ספריא לא החזירה טקסט לפירושים שנבחרו.')
+    if (reader===state) await setReadingMode(state,'commentaries',result,'all-commentaries')
+  })
+  const shown=new Set(state.selectedCommentaries)
+  const ids=new Set()
+  const parts=[...(state.recipe?.components || []),...state.phoneTabs]
+  for (const component of parts) {
+    const id='comment:'+component.id
+    if (ids.has(id) || (shown.has(component.name) && state.activeTab!==id)) continue
+    ids.add(id)
+    shown.add(component.name)
+    add(component.name,id,async () => {
+      const result=await syncedComposition({layout:'commentary',components:[component]},state.refs,state.rows)
+      if (reader===state) await setReadingMode(state,result.mode,result.extras,id)
+    })
+  }
+  if (state.recipe && state.recipe.layout!=='commentary') {
+    add(state.recipe.title || 'פירוש משולב','combined',async () => {
+      const result=await syncedComposition(state.recipe,state.refs,state.rows)
+      if (reader===state) await setReadingMode(state,result.mode,result.extras,'combined',result.sourceStyle)
+    })
+  }
+}
+
+async function editComposition(state,available) {
+  const content=readerDialog(state.recipe&&state.recipe.layout!=='commentary'?'עריכת פירוש משולב':'יצירת פירוש משולב')
+  const feedback=node('p','טוען פירושים…',{role:'status'})
+  content.append(feedback)
+  try {
+    available ||= await commentaries(state.refs,state.rows)
+    if (reader!==state || !toolsDialog.open) return
+    const old=state.recipe?.layout==='commentary' ? null : state.recipe
+    const candidates=new Map()
+    for (const [name,byRow] of available) {
+      const id=[...byRow.values()].flat().find(link=>link.id)?.id
+      if (id && !candidates.has(id)) candidates.set(id,{id,name,style:{}})
+    }
+    if (torahReferences(state.refs) && !candidates.has('Onkelos'))
+      candidates.set('Onkelos',{id:'Onkelos',name:'אונקלוס',style:{}})
+    const ordered=(old?.components || []).map(part=>({...part,style:{...part.style}}))
+    const sourceStyle={...old?.sourceStyle}
+    if (!old) for (const name of [...new Set([...state.selectedCommentaries,...state.phoneTabs.map(part=>part.name)])]) {
+      const part=[...candidates.values()].find(candidate=>candidate.name===name)
+      if (part) ordered.push({...part,style:{}})
+    }
+    const labeled=(text,control) => {
+      const label=node('label',text)
+      label.append(control)
+      return label
+    }
+    const select=(options,value)=>{
+      const control=node('select','')
+      control.append(...options.map(([key,label])=>node('option',label,{value:key})))
+      control.value=value
+      return control
+    }
+    const title=node('input','',{value:old?.title||'פירוש משולב',maxLength:100})
+    const layout=select([['verse','אחרי הפסוק'],['quotes','לפי ציטוטים'],...(old?.layout==='whole'?[['whole','אחרי הפסוק במלואו']]:[])],old?.layout||'verse')
+    const font=select([['','גופן הקריאה'],['system','גופן מערכת'],['serif','גופן ספרותי'],
+      ['sans','ללא תגים'],['david_libre','דוד ליברה'],['semi_stam','שלמה סמי־סת״ם']],old?.font||'')
+    const choice=select([['','בחר פירוש'],...[...candidates.values()].map(part=>[part.id,part.name])],'')
+    const list=node('div','')
+    const appearance=(field,style,commentary)=>{
+        const options=[['bold','מודגש',false],['italic','נטוי',false],['stripNiqqud','הסר ניקוד',false]]
+        if (commentary) options.push(['inline','באותה שורה',false],['showName','הצג שם',true])
+        for (const [key,label,fallback] of options) {
+          const box=node('input','',{type:'checkbox',checked:style[key]??fallback})
+          box.onchange=()=>{style[key]=box.checked}
+          const labelRow=labeled(label,box);labelRow.className='check';field.append(labelRow)
+        }
+        for (const [key,label] of [['color','צבע טקסט'],['background','צבע רקע']]) {
+          const color=node('input','',{type:'color',value:'#'+((style[key] || 0) & 0xffffff).toString(16).padStart(6,'0')})
+          color.onchange=()=>{style[key]=(0xff000000|parseInt(color.value.slice(1),16))}
+          field.append(labeled(label,color),button('איפוס '+label,()=>{delete style[key];color.value='#000000'}))
+        }
+        const sizes=[.8,1,1.15,1.3,1.5]
+        if (style.scale && !sizes.includes(style.scale)) sizes.push(style.scale)
+        const scale=select(sizes.sort((a,b)=>a-b).map(value=>[value,Math.round(value*100)+'%']),style.scale||1)
+        scale.onchange=()=>{style.scale=Number(scale.value)}
+        field.append(labeled('גודל יחסי',scale))
+        if (!commentary) return
+        const detect=select([['auto','אוטומטי'],['pointed','לפי ניקוד'],['line','תחילת שורה'],['opening','דיבור מתחיל']],style.detect||'auto')
+        detect.onchange=()=>{style.detect=detect.value}
+        field.append(labeled('זיהוי ציטוט',detect))
+    }
+    const sourceAppearance=node('details','')
+    sourceAppearance.append(node('summary','עיצוב המקור'))
+    appearance(sourceAppearance,sourceStyle,false)
+    const render=()=>{
+      list.replaceChildren()
+      ordered.forEach((part,index)=>{
+        const field=node('fieldset','')
+        field.append(node('legend',part.name))
+        const row=node('div','',{className:'inline'})
+        const move=(delta)=>{[ordered[index],ordered[index+delta]]=[ordered[index+delta],ordered[index]];render()}
+        const up=button('העלה',()=>move(-1)), down=button('הורד',()=>move(1))
+        up.disabled=index===0;down.disabled=index===ordered.length-1
+        row.append(up,down,button('הסר',()=>{ordered.splice(index,1);render()}))
+        field.append(row)
+        appearance(field,part.style,true)
+        list.append(field)
+      })
+    }
+    const actions=node('div','',{className:'inline'})
+    const perform=async (previewOnly) => {
+      if (save.disabled) return
+      if (!ordered.length || !title.value.trim()) { feedback.textContent='הזן שם ובחר לפחות פירוש אחד.';return }
+      const recipe={title:title.value.trim(),layout:layout.value,font:font.value,sourceStyle,components:ordered}
+      save.disabled=previewButton.disabled=true
+      feedback.textContent='טוען את הטקסטים…'
+      try {
+        const result=await syncedComposition(recipe,state.refs,state.rows)
+        if (reader!==state || !toolsDialog.open) return
+        if (previewOnly) {
+          const first=result.extras.entries().next().value
+          const preview=node('div','',{className:'reader'})
+          preview.style.fontFamily=fonts[recipe.font] || ''
+          if (first) {
+            const original=node('p',displayReadingText(state.rows[first[0]].text,sourceStyle))
+            applyComponentStyle(original,sourceStyle)
+            preview.append(original)
+            for (const [name,value,style] of first[1]) {
+              const note=node('p',(style?.showName===false?'':name+' · ')+displayReadingText(value,style))
+              applyComponentStyle(note,style);preview.append(note)
+            }
+          }
+          content.querySelector('.composition-preview')?.remove()
+          preview.classList.add('composition-preview')
+          content.append(preview);feedback.textContent='תצוגה מקדימה';preview.scrollIntoView({block:'nearest'})
+          return
+        }
+        state.recipe=recipe
+        await saveCommentTabs(state)
+        await setReadingMode(state,result.mode,result.extras,'combined',result.sourceStyle)
+        toolsDialog.close()
+      } catch(error) { feedback.textContent=error.message }
+      finally { save.disabled=previewButton.disabled=false }
+    }
+    const save=button('שמור משולב',()=>perform(false),'primary')
+    const previewButton=button('תצוגה מקדימה',()=>perform(true))
+    actions.append(choice,button('הוסף פירוש',()=>{
+      if (!choice.value || ordered.some(part=>part.id===choice.value)) return
+      ordered.push({...candidates.get(choice.value),style:{}});choice.value='';render()
+    }))
+    feedback.textContent=''
+    content.append(labeled('שם המשולב',title),labeled('אופן השילוב',layout),labeled('גופן המשולב',font),sourceAppearance,actions,list,previewButton,save)
+    render()
+  } catch(error) { feedback.textContent=error.message || 'טעינת הפירושים נכשלה.' }
+}
+
+async function setReadingMode(state, mode, extras, activeTab = 'source', sourceStyle) {
   const offset = currentOffset(state)
   stopSpeech()
   state.mode = mode
-  state.sourceStyle = undefined
+  state.activeTab = activeTab
+  state.sourceStyle = sourceStyle
   state.extras = extras
+  refreshCommentTabs(state)
   state.article.dataset.readingMode = mode
   jumpTo(state,offset)
-  if (mode === 'source') await remove(state.modeKey)
-  else await write(state.modeKey,{mode,extras:[...extras],commentaries:state.selectedCommentaries || []})
+  await write(state.modeKey,{mode,extras:[...extras],activeTab,sourceStyle,commentaries:state.selectedCommentaries || []})
 }
 
 function updateFullscreen(state, active) {
@@ -1015,7 +1233,8 @@ function readingTools(state) {
     button('סימניות', () => showBookmarks(state)),
     button('סימון מיקום', async () => { await pin(state,currentOffset(state)); status('מיקום הקריאה סומן.') })
   ]
-  if (state.refs.length) controls.push(button('פירושים',() => readingCommentaries(state)))
+  if (state.refs.length) controls.push(button('פירושים',() => readingCommentaries(state)),
+    button('עריכת או יצירת פירוש משולב',() => editComposition(state)))
   if (torahReferences(state.refs)) {
     const mikra = button('שניים מקרא ואחד תרגום', async () => {
       if (state.mode === 'shnayim') { await setReadingMode(state,'source',new Map()); return }
