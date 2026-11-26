@@ -24,8 +24,8 @@
   </script>
   <link rel="icon" href="./kiduman.png" type="image/png">
   <link rel="apple-touch-icon" href="./kiduman.png">
-  <link rel="stylesheet" href="./styles.css?v=11">
-  <script type="module" src="./app.mjs?v=14"></script>
+  <link rel="stylesheet" href="./styles.css?v=12">
+  <script type="module" src="./app.mjs?v=15"></script>
 </head>
 <body>
   <a class="skip" href="#main">דילוג לתוכן</a>
@@ -37,7 +37,7 @@
     <aside>
       <nav aria-label="ניווט ראשי">
         <a href="#home">בית</a><a href="#library">ספרייה</a><a href="#continue">לימוד יומי</a>
-        <a href="#daily">קטלוג ספריא</a><a href="#tasks">משימות</a><a href="#reminders">תזכורות</a><a href="#siddur">סידור</a><a href="#saved">הספרים שלי</a>
+        <a href="#daily">קטלוג ספריא</a><a href="#tasks">משימות</a><a href="#reminders">תזכורות</a><a href="#siddur">סידור</a><a href="#saved">הספרים שלי</a><a href="./about.html">אודות</a>
       </nav>
       <div class="date" id="today"></div>
     </aside>
@@ -54,11 +54,16 @@
           </div>
         </header>
         <div class="grid home-features">
-          <section class="card"><h2>לימוד יומי</h2><p>עיון בלוח הלימוד של ספריא. לאחר צימוד לקידומן באנדרואיד אפשר לפתוח את הלימודים האישיים בדפדפן ולהמשיך מהמיקום שסונכרן.</p><a href="#daily">קטלוג הלימוד היומי</a> · <a href="#continue">הלימודים שלי</a></section>
+          <section class="card"><h2>לימוד יומי</h2><p>עיון בלוח הלימוד של ספריא וגישה למסלולי הלימוד האישיים לאחר צימוד לאפליקציה.</p><a href="#daily">קטלוג הלימוד היומי</a> · <a href="#continue">הלימודים שלי</a></section>
           <section class="card"><h2>מקורות ופירושים</h2><p>תנ״ך, משנה, תלמוד והלכה. פותחים פירוש לפי פסוק, בוחרים טאבים לפירושים או יוצרים פירוש משולב לצד המקור.</p><a href="#library">חיפוש לפי מראה מקום</a></section>
           <section class="card"><h2>סידור תפילה</h2><p>סידור בנוסח אשכנז, ספרד ועדות המזרח. בוחרים תפילה מתוך תוכן העניינים או פותחים ישירות את תפילת הדרך.</p><a href="#siddur">בחירת נוסח ותפילה</a></section>
           <section class="card"><h2>כלי קריאה</h2><p>גופנים וערכות צבעים, מסך מלא, סימניות, חיצי גלילה והקראה בעברית כשיש קול מתאים בדפדפן. אפשר לשמור קטעים לקריאה גם בלי חיבור.</p><a href="#saved">הספרים שלי</a></section>
         </div>
+        <section class="card home-android">
+          <h2>ממשיכים ללמוד בדיוק מהמקום שעצרתם</h2>
+          <p>התחלתם ללמוד בטלפון ופתחתם אחר כך את קידומן במחשב או בטאבלט? לאחר צימוד לאפליקציית קידומן באנדרואיד, אפשר להמשיך בדפדפן ממקום הקריאה האחרון שסונכרן במסלולי הלימוד הנתמכים.</p>
+          <a href="#continue">פתיחת הלימודים שלי</a>
+        </section>
         <section class="card home-android" id="android-app" aria-labelledby="android-title">
           <h2 id="android-title">קידומן לאנדרואיד</h2>
           <p>אפשר להצטרף לקבוצת הבדיקה של האפליקציה לקראת הפרסום בחנות.</p>

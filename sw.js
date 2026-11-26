@@ -1,6 +1,6 @@
 const prefix = 'kiduman-web:'
-const version = prefix + 'shell-v15'
-const shell = ['./', './index.html', './styles.css?v=11', './app.mjs?v=14', './reader-ui.mjs?v=6', './kiduman.png', './data.mjs?v=5', './sync.mjs?v=6', './reader-content.mjs?v=7', './DavidLibre-Regular.ttf', './ShlomoSemiStam.ttf', './travel-prayer.json', './reader-icons.mjs?v=1', './siddur-sources.mjs?v=2']
+const version = prefix + 'shell-v16'
+const shell = ['./', './index.html', './about.html', './styles.css?v=12', './app.mjs?v=15', './reader-ui.mjs?v=6', './kiduman.png', './data.mjs?v=5', './sync.mjs?v=6', './reader-content.mjs?v=7', './DavidLibre-Regular.ttf', './ShlomoSemiStam.ttf', './travel-prayer.json', './reader-icons.mjs?v=1', './siddur-sources.mjs?v=2']
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(version).then(cache => cache.addAll(shell)).then(() => self.skipWaiting()))
@@ -18,7 +18,7 @@ self.addEventListener('fetch', event => {
   const path = url.href.slice(self.registration.scope.length)
   if (event.request.mode !== 'navigate' && !shell.includes('./' + path)) return
   event.respondWith(fetch(event.request).catch(async () => {
-    const response = await (event.request.mode === 'navigate' ? caches.match('./index.html') : caches.match(event.request))
+    const response = await caches.match(event.request) || (event.request.mode === 'navigate' && await caches.match('./index.html'))
     return response || Response.error()
   }))
 })

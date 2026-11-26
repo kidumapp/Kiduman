@@ -1116,6 +1116,7 @@ function positionArrows(state) {
   if (edge) {
     group.style.left = Math.max(2,rect.left-44)+'px'
     group.style.top = top+'px'
+    group.style.height = span+'px'
     group.style.setProperty('--arrow-center',shift+'px')
   } else {
     group.style.top = top+shift+'px'
@@ -1125,7 +1126,9 @@ function positionArrows(state) {
 
 function arrowSpace(state,edge) {
   const top = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
-  const span = Math.max(1,(window.visualViewport?.height || window.innerHeight)-top)
+  const viewportHeight = window.visualViewport?.height || window.innerHeight
+  const bottom = Math.min(viewportHeight,state.menu.getBoundingClientRect().top-6)
+  const span = Math.max(1,bottom-top)
   return {top,span,margin:Math.min(edge?28:46,span/2)}
 }
 
@@ -1205,6 +1208,7 @@ function renderArrows(state) {
     group.style.removeProperty('left')
     group.style.removeProperty('right')
     group.style.removeProperty('top')
+    group.style.removeProperty('height')
     state.toolbar.append(group)
     positionArrows(state)
   }
@@ -1659,9 +1663,18 @@ function readingTools(state) {
     items.append(...controls)
     controls.forEach(control=>control.addEventListener('click',()=>toolsDialog.close(),{capture:true}))
     readerDialog('כלי קריאה').append(items)
-  })
+  },'reader-menu-toggle')
+  menu.setAttribute('aria-haspopup','dialog')
+  menu.setAttribute('aria-controls',toolsDialog.id)
+  state.menu = menu
   return [iconTool('home','בית',readerHome,'reader-home'),menu,state.fullscreen,state.arrows,aloud]
 }
+
+toolsDialog.addEventListener('click',event => {
+  if (event.target!==toolsDialog || !toolsDialog.classList.contains('tool-menu')) return
+  const bounds = toolsDialog.getBoundingClientRect()
+  if (event.clientX < bounds.left || event.clientX > bounds.right) toolsDialog.close()
+})
 
 $('#reader-dialog-home').replaceChildren(readerIcon('home'))
 $('#reader-dialog-home').onclick = readerHome
