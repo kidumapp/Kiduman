@@ -762,6 +762,7 @@ let scrollTimer
 window.addEventListener('scroll', () => {
   if (!reader?.article?.childElementCount) return
   const state = reader
+  positionArrows(state)
   clearTimeout(scrollTimer)
   scrollTimer = setTimeout(() => {
     const edge = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
@@ -1031,6 +1032,7 @@ function positionArrows(state) {
   const rect = state.article.getBoundingClientRect()
   state.arrows.style.left = Math.max(2,rect.left-44)+'px'
   state.arrows.style.right = Math.max(2,document.documentElement.clientWidth-rect.right-44)+'px'
+  state.arrows.style.top = Math.max(0,state.toolbar.getBoundingClientRect().bottom)+'px'
 }
 
 window.addEventListener('resize',()=>{if (reader) positionArrows(reader)})
@@ -1059,6 +1061,7 @@ function renderArrows(state) {
   } else {
     group.style.removeProperty('left')
     group.style.removeProperty('right')
+    group.style.removeProperty('top')
     state.toolbar.append(group)
   }
   for (const control of group.querySelectorAll('button')) {
