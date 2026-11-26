@@ -146,7 +146,7 @@ legend{font-weight:700;padding-inline:.35rem}
 .about-page{max-width:48rem;margin:0 auto;padding:clamp(1rem,4vw,2.4rem) 1rem}
 .about-page .card+.card{margin-block-start:1rem}
 
-.icon-tool svg{width:22px;height:22px;flex:none;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
+.icon-tool svg{width:22px;height:22px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .icon-tool{display:inline-flex;align-items:center;gap:.5rem}
 .reader-toolbar{z-index:5;top:env(safe-area-inset-top,0px)}
 .reading-view .reader-toolbar .icon-tool{display:grid;place-items:center;min-width:44px;min-height:44px}
@@ -189,3 +189,13 @@ dialog:not(#reader-tool-dialog)>form:first-child{position:sticky;top:0;z-index:2
 .home-preview figure{margin:0}
 .home-preview img{display:block;max-width:100%;width:auto;height:auto;max-height:33rem;border:1px solid var(--line);border-radius:.75rem}
 .home-preview figcaption{margin-top:.4rem;color:var(--muted)}
+
+.icon-tool .icon-fill,.siddur-prayers .icon-fill{fill:currentColor;stroke:none}
+.siddur-prayers .card{display:flex;align-items:center;gap:.6rem}
+.siddur-prayers svg,.reader-arrows svg{width:22px;height:22px;display:block;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.reader-arrows button>span{display:inline-flex;align-items:center}
+.reader article .siddur-heading{margin-top:1rem;color:var(--accent)}
+.siddur-heading button{border:0;color:inherit;background:transparent;text-align:start;padding-inline:0}
+.siddur-rubric{color:var(--muted);font-size:.78em}
+.siddur-rain{color:var(--accent)}
+.siddur-toc{display:block;width:100%;text-align:start;margin-block:.25rem;overflow-wrap:anywhere}

@@ -1,6 +1,7 @@
+import {bundledPrayer, displayPrayerRow, loadSiddurCalendar, prayerClock, prayerNames, siddurDay, weekdayPrayers} from './bundled-siddur.mjs'
 import {accentedQuotes, prayerLinks, sourcesForRow} from './siddur-sources.mjs?v=2'
-import {readerIcon} from './reader-icons.mjs?v=2'
-import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=5'
+import {readerIcon} from './reader-icons.mjs?v=3'
+import {api, calendar, fingerprint, keys, localDate, read, remove, text, write} from './data.mjs?v=5'
 import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=6'
 
 import {applyDesign, defaults, fonts, readFields, readingAddress, readingText, searchText, watchSystemTheme} from './reader-ui.mjs?v=6'
@@ -402,55 +403,151 @@ async function daily(ticket, date, program) {
   view.append(grid)
 }
 
-function treeNode(entry) {
-  if (!entry.children.length) {
-    const query = new URLSearchParams({ref: entry.ref})
-    const target = link(entry.name, '#prayer/' + query)
-    return target
+const siddurOptions = {publicPrayer:false, meal:'regular', purim:0, notes:true, accents:true, ...await read('siddur-options')}
+let siddurLocation = await read('siddur-location')
+let prayerExpanded = new Set()
+
+function selectOption(label, options, value, update) {
+  const field = node('label',label)
+  const select = node('select','',{'value':''})
+  for (const [option,caption] of options) select.append(node('option',caption,{value:String(option)}))
+  select.value=String(value)
+  select.onchange=()=>protect(()=>update(select.value))
+  field.append(select)
+  return field
+}
+
+function prayerHref(prayer, edition) {
+  return '#prayer/'+new URLSearchParams({service:prayer,nusach:edition})
+}
+
+async function setSiddurOption(key,value,apply) {
+  siddurOptions[key]=value
+  await write('siddur-options',siddurOptions)
+  await apply()
+}
+
+function siddurControls(edition, clock, refresh, prayer, state) {
+  const controls = node('div','',{className:'controls inline'})
+  controls.append(
+    selectOption('נוסח',nusach.map(([caption,name])=>[travelNusach.get(name),caption]),edition,async value=>{
+      selectedNusach=nusach.find(([,name])=>travelNusach.get(name)===value)[1]
+      await write('nusach',selectedNusach)
+      prayerExpanded = new Set()
+      history.replaceState(null,'',prayer ? prayerHref(prayer,value) : '#siddur')
+      if (state) toolsDialog.close()
+      await show()
+    }),
+    selectOption('מנהג לפי אזור',[['Israel','ארץ ישראל'],['diaspora','חוץ לארץ']],preferences.region,async value=>{
+      preferences.region=value
+      await write('preferences',preferences)
+      await refresh()
+    }),
+    selectOption('אופן התפילה',[[0,'יחיד'],[1,'ציבור']],Number(siddurOptions.publicPrayer),
+      value=>setSiddurOption('publicPrayer',value==='1',refresh))
+  )
+  if (prayer==='birkatHamazon') controls.append(selectOption('סוג הסעודה',
+    [['regular','רגילה'],['wedding','שבע ברכות'],['brit','ברית מילה']],siddurOptions.meal,
+    value=>setSiddurOption('meal',value,refresh)))
+  if (!prayer || state?.entry.prayerDay.needsPurimChoice || siddurOptions.purim) controls.append(selectOption('קריאת המגילה',
+    [[0,'לפי בחירה בפורים'],[14,'י״ד באדר'],[15,'ט״ו באדר']],siddurOptions.purim,
+    value=>setSiddurOption('purim',Number(value),refresh)))
+  if (!prayer) {
+    const locate = button('התאמת זמני תפילה למיקום שלי',()=>{
+      if (!navigator.geolocation) throw new Error('הדפדפן אינו מאפשר גישה למיקום.')
+      const report=controls.querySelector('[role=status]')
+      report.textContent='ממתין לאישור מיקום…'
+      navigator.geolocation.getCurrentPosition(({coords})=>protect(async()=>{
+        siddurLocation={lat:coords.latitude,lon:coords.longitude}
+        await write('siddur-location',siddurLocation)
+        await refresh()
+      }),()=>{report.textContent='המיקום לא התקבל. אפשר להמשיך לקרוא לפי ברירת המחדל.'},{timeout:10000})
+    })
+    controls.append(locate,node('p',clock.approximate?'מעבר היום משוער. אפשר להתאים אותו למיקום.':'',{className:'meta',role:'status'}))
   }
-  const branch = node('details', '')
-  branch.append(node('summary', entry.name))
-  const list = node('ul', '')
-  for (const child of entry.children) {
-    const row = node('li', '')
-    row.append(treeNode(child))
-    list.append(row)
-  }
-  branch.append(list)
-  return branch
+  return controls
 }
 
 async function siddur(ticket, nusachKey) {
-  const routeNusach = nusach.find(([, name]) => travelNusach.get(name) === nusachKey)?.[1]
-  const activeNusach = routeNusach || selectedNusach
+  const edition = [...travelNusach.values()].includes(nusachKey) ? nusachKey : travelNusach.get(selectedNusach) || 'ashkenaz'
+  const clock = prayerClock(preferences.region,siddurLocation)
+  const table = await loadSiddurCalendar()
+  if (ticket!==revision) return
+  const day = siddurDay(table,clock.day,preferences.region==='Israel','shacharit',siddurOptions.purim,clock.motzaei)
   heading('סידור')
-  const label = node('label', 'נוסח')
-  const select = node('select', '')
-  for (const [name, value] of nusach) select.append(node('option', name, {value}))
-  select.value = activeNusach
-  select.onchange = () => protect(async () => {
-    selectedNusach = select.value
-    await write('nusach', selectedNusach)
-    if (routeNusach) history.replaceState(null, '', '#siddur')
-    await show()
-  })
-  const controls = node('div', '', {className:'controls inline'})
-  label.append(select)
-  controls.append(label,link('תפילת הדרך','#prayer/travel='+travelNusach.get(activeNusach)))
-  view.append(controls)
-  status('טוען תוכן עניינים…')
-  const data = await index(activeNusach)
-  if (ticket !== revision) return
-  status()
-  view.append(...siddurTree(data.schema, [data.title]).map(entry => treeNode(entry)))
+  const label = new Intl.DateTimeFormat('he-IL-u-ca-hebrew',{dateStyle:'full',timeZone:'UTC'})
+  view.append(node('p',label.format(new Date(clock.day*86400000)),{className:'meta'}),
+    siddurControls(edition,clock,show))
+  const prayers = Object.keys(prayerNames).slice(4)
+  if (day.closed) view.append(node('p','הסידור מיועד לתפילות חול. כעת שבת או יום טוב.',{className:'meta'}))
+  else {
+    prayers.unshift(...[0,1,2].map(offset=>weekdayPrayers[(clock.suggested+offset)%3]),...(day.musaf?['musaf']:[]))
+  }
+  const list=node('div','',{className:'grid siddur-prayers'})
+  for (const prayer of prayers) {
+    if (prayer==='havdalah' && (day.closed || !clock.motzaei)) continue
+    const item=link(prayerNames[prayer],prayerHref(prayer,edition))
+    item.className='card'
+    item.prepend(readerIcon(prayer==='travelPrayer'?'source':'prayer'))
+    list.append(item)
+  }
+  view.append(list)
 }
 
-async function travelPrayer(nusachKey) {
-  const response = await fetch('./travel-prayer.json')
-  if (!response.ok) throw new Error('תפילת הדרך לא נטענה.')
-  const prayer = (await response.json())[nusachKey]
-  return {type:'prayer',title:'תפילת הדרך',ref:prayer.ref,
-    version:prayer.version,license:prayer.license,rows:[{text:prayer.text}]}
+async function openBundledPrayer(prayer, edition, ticket) {
+  if (!Object.hasOwn(prayerNames,prayer) || ![...travelNusach.values()].includes(edition)) throw new Error('התפילה או הנוסח אינם זמינים.')
+  const clock=prayerClock(preferences.region,siddurLocation)
+  const table=await loadSiddurCalendar()
+  if (ticket!==revision) return
+  const day=siddurDay(table,clock.day,preferences.region==='Israel',prayer==='musaf'?'shacharit':prayer,siddurOptions.purim,clock.motzaei)
+  const dated=weekdayPrayers.includes(prayer) || prayer==='musaf'
+  if (dated && day.closed || prayer==='musaf' && !day.musaf || prayer==='havdalah' && (!clock.motzaei || day.closed)) {
+    heading(prayerNames[prayer])
+    status('התפילה הזאת אינה מופיעה בסידור להיום.')
+    view.append(link('בחירת תפילה','#siddur/'+edition))
+    return
+  }
+  if (dated && day.needsPurimChoice) {
+    heading(prayerNames[prayer])
+    status('בחר את יום קריאת המגילה כדי להציג את התפילה המתאימה.')
+    view.append(selectOption('קריאת המגילה',[[0,'בחירה'],[14,'י״ד באדר'],[15,'ט״ו באדר']],0,
+      value=>setSiddurOption('purim',Number(value),show)))
+    return
+  }
+  status('טוען תפילה…')
+  const entry = await bundledPrayer(edition,prayer,day,{...siddurOptions,expanded:prayerExpanded})
+  const editionName=nusach.find(([,name])=>travelNusach.get(name)===edition)[0]
+  await renderReader({...entry,type:'prayer',title:prayerNames[prayer]+' · '+editionName,
+    ref:edition+':'+prayer, prayer, edition, prayerDay:day, bundled:true,
+    region:preferences.region, day:clock.day},ticket)
+}
+
+async function reloadPrayer(state) {
+  const offset=currentOffset(state)
+  if (toolsDialog.open) toolsDialog.close()
+  await pin(state,offset)
+  await show()
+}
+
+async function togglePrayerSection(state,key,anchor) {
+  if (prayerExpanded.has(key)) prayerExpanded.delete(key)
+  else prayerExpanded.add(key)
+  const entry=await bundledPrayer(state.entry.edition,state.entry.prayer,state.entry.prayerDay,
+    {...siddurOptions,expanded:prayerExpanded})
+  if (reader!==state) return
+  stopSpeech()
+  state.rows=entry.rows.map(row=>({...row,offset:row.stable+1}))
+  state.raw=state.rows.map(row=>row.text).join('\n')
+  state.entry.hasAccents=entry.hasAccents
+  state.pager.container.hidden=state.rows.length<=80
+  jumpTo(state,anchor)
+  refreshReadingRail(state)
+}
+
+function showPrayerContents(state) {
+  const content=readerDialog('תוכן עניינים')
+  for (const row of state.rows.filter(item=>item.heading && !item.toggle?.startsWith('repetition:')))
+    content.append(button(row.text,()=>{toolsDialog.close();jumpTo(state,row.offset)},'siddur-toc'))
 }
 
 async function saved(ticket) {
@@ -540,7 +637,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const lines = personal ? entry.text.split('\n').map(line => ({text:line})) : entry.rows
   const rows = lines.map(line => {
     const prefix = line.address ? line.address + '  ' : ''
-    const row = {...line, offset:length}
+    const row = {...line, offset:entry.bundled ? line.stable+1 : length}
     raw += prefix + line.text + '\n'
     length = raw.length
     return row
@@ -563,7 +660,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const mark = synced?.updatedAt > (local?.updatedAt || 0)
     ? anchorOffset(raw, synced) ?? (entry.syncTab && synced.offset < raw.length ? synced.offset : local?.offset ?? 0) : local?.offset || 0
   const state = {entry, article, rows, raw, key, mark, viewed:false, page:0,
-    refs:passageRefs(entry),mode:entry.syncedMode?.mode || 'source',extras:entry.syncedMode?.extras || new Map(),
+    refs:entry.bundled ? [] : passageRefs(entry),mode:entry.syncedMode?.mode || 'source',extras:entry.syncedMode?.extras || new Map(),
     sourceStyle:entry.syncedMode?.sourceStyle,
     recipes:new Map(entry.syncedRecipes), edits:{}, layout:readerPanel,
     activeTab:entry.openingTab || 'source',
@@ -573,7 +670,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
   if (ticket !== revision) return
   reader = state
   document.body.classList.add('reading-view')
-  if (!personal) {
+  if (!personal && !entry.bundled) {
     const saveButton = button(available ? 'נשמר לקריאה בלי אינטרנט' : 'שמירה לקריאה בלי אינטרנט', async () => {
       await write('saved:' + id, entry)
       saveButton.disabled = true
@@ -616,7 +713,8 @@ async function renderReader(entry, ticket, keepHeading = false) {
   actions.prepend(jump)
   state.jump = jump
   const top = node('div', '', {className:'inline'})
-  if (entry.type === 'prayer') top.append(link('תוכן עניינים', '#siddur'))
+  if (entry.bundled) top.append(link('בחירת תפילה','#siddur/'+entry.edition),button('תוכן עניינים',()=>showPrayerContents(state)))
+  else if (entry.type === 'prayer') top.append(link('תוכן עניינים', '#siddur'))
   if (entry.type === 'library' && entry.prev) top.append(button('הקטע הקודם', () => openRef(entry.prev)))
   if (entry.type === 'library' && entry.next) top.append(button('הקטע הבא', () => openRef(entry.next)))
   if (top.childElementCount) actions.prepend(top)
@@ -629,7 +727,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
   const pages = node('div', '', {className:'reader-actions'})
   const previous = button('עמוד קודם', async () => { await pin(state, state.rows[(state.page - 1) * 80].offset); jumpTo(state, state.mark) })
   const next = button('עמוד הבא', async () => { await pin(state, state.rows[(state.page + 1) * 80].offset); jumpTo(state, state.mark) })
-  state.pager = {previous, next}
+  state.pager = {previous, next, container:pages}
   pages.append(previous, next)
   pages.hidden = rows.length <= 80
   state.tabs = node('div','',{className:'comment-tabs'})
@@ -643,7 +741,7 @@ async function renderReader(entry, ticket, keepHeading = false) {
   if (entry.type === 'library' && entry.next) view.append(button('הקטע הבא', () => openRef(entry.next)))
   if (entry.version) {
     const attribution = node('p', entry.version + (entry.license ? ' · ' + entry.license : '') + ' · ', {className:'meta'})
-    attribution.append(link('ספריא', 'https://www.sefaria.org/' + encodeURIComponent(entry.ref)))
+    attribution.append(link('ספריא', 'https://www.sefaria.org/' + encodeURIComponent(entry.sourceRef || entry.ref)))
     view.append(attribution)
   }
   state.article.dataset.readingMode = state.mode
@@ -699,7 +797,23 @@ function renderPage(state, target) {
   state.rows.slice(start, start + 80).forEach(row => {
     const paragraph = node('p', '')
     paragraph.dataset.offset = row.offset
-    const prayerSource = state.entry.type==='prayer' && row.sourceRef
+    if (state.entry.bundled && row.heading) {
+      const text=node('strong',row.text)
+      paragraph.className='siddur-heading'
+      if (row.toggle) {
+        const expanded=prayerExpanded.has(row.toggle)
+        const toggle=button(row.text+' '+(expanded?'▴':'▾'),()=>togglePrayerSection(state,row.toggle,row.offset))
+        toggle.setAttribute('aria-expanded',String(expanded))
+        paragraph.append(toggle)
+      } else paragraph.append(text)
+      state.article.append(paragraph)
+      return
+    }
+    if (row.note) {
+      paragraph.className='siddur-rubric'
+      paragraph.hidden=!siddurOptions.notes
+    } else if (row.rain) paragraph.className='siddur-rain'
+    const prayerSource = state.entry.type==='prayer' && (row.sourceRef || row.linkedSources?.length)
     const address = readingAddress(row.address, preferences.addressStyle)
     if (address) {
       const marker = row.sourceRef && state.refs.length
@@ -709,10 +823,10 @@ function renderPage(state, target) {
       paragraph.append(marker,document.createTextNode(' '))
     }
     if (prayerSource) {
-      const citation = iconTool('notes','מקורות ופירושים '+(address || row.address || ''),()=>siddurSources(state,row),'siddur-citation')
+      const citation = iconTool('passage','מקורות ופירושים '+(address || row.address || ''),()=>siddurSources(state,row),'siddur-citation')
       paragraph.append(citation)
     }
-    const visibleText = state.siddurAccents?.get(row.offset) || row.text
+    const visibleText = state.entry.bundled ? displayPrayerRow(row,siddurOptions.accents) : state.siddurAccents?.get(row.offset) || row.text
     const bookmark = state.bookmarks.find(item => item.offset === row.offset)
     if (row.offset === state.mark) paragraph.classList.add('last-position')
     if (bookmark) {
@@ -721,10 +835,24 @@ function renderPage(state, target) {
     }
     const extras = state.extras.get(start + state.article.childElementCount) || []
     const source = value => {
-      const presented = state.siddurAccents?.has(row.offset) && preferences.vocalization==='vowels' && !state.sourceStyle?.stripNiqqud
+      const presented = (state.siddurAccents?.has(row.offset) || state.entry.bundled && siddurOptions.accents) && preferences.vocalization==='vowels' && !state.sourceStyle?.stripNiqqud
         ? value : displayReadingText(value,state.sourceStyle)
       const span = node('span',presented,{className:'reader-source'})
-      span.dataset.speech=value
+      if (row.noteRanges?.length) {
+        let start=0
+        span.replaceChildren()
+        for (const [from,to] of row.noteRanges) {
+          if (from<start || to>row.text.length) continue
+          const textPart=(a,b)=>displayReadingText(displayPrayerRow({text:row.text.slice(a,b),
+            accents:row.accents?.filter(([pos])=>pos>a&&pos<=b).map(([pos,value])=>[pos-a,value])},siddurOptions.accents))
+          span.append(textPart(start,from))
+          if (siddurOptions.notes) span.append(node('small',textPart(from,to),{className:'siddur-rubric'}))
+          start=to
+        }
+        const last={text:row.text.slice(start),accents:row.accents?.filter(([pos])=>pos>start).map(([pos,value])=>[pos-start,value])}
+        span.append(displayReadingText(displayPrayerRow(last,siddurOptions.accents)))
+      }
+      if (!row.note) span.dataset.speech=state.entry.bundled ? row.text : value
       applyComponentStyle(span,state.sourceStyle)
       paragraph.append(span)
     }
@@ -834,10 +962,11 @@ async function show() {
     heading(route === 'prayer' ? 'סידור' : 'קריאה')
     status('טוען טקסט…')
     let entry
-    const travel = route==='prayer' ? new URLSearchParams(parameter).get('travel') : null
-    if (['ashkenaz','sefard','mizrach'].includes(travel)) {
-      entry = await travelPrayer(travel)
-    } else if (route === 'read' || route === 'prayer') {
+    const prayerParams=route==='prayer' ? new URLSearchParams(parameter) : null
+    if (prayerParams?.has('service') || prayerParams?.has('travel'))
+      return openBundledPrayer(prayerParams.get('service') || 'travelPrayer',
+        prayerParams.get('nusach') || prayerParams.get('travel'),ticket)
+    if (route === 'read' || route === 'prayer') {
       const ref = route === 'read' ? decodeURIComponent(parameter) : new URLSearchParams(parameter).get('ref')
       if (!ref) throw new Error('בחר טקסט מהספרייה או מהסידור.')
       const existing = await read('saved:' + entryId({type:route === 'read' ? 'library' : 'prayer', ref}))
@@ -930,13 +1059,20 @@ async function siddurSources(state,selected) {
   const row=selected || state.rows[rowOffset(state.rows,currentOffset(state))]
   const content=readerDialog('מקורות ופירושים בסידור')
   content.append(node('p',displayReadingText(row.text)))
+  if (state.entry.bundled && !row.linkedSources?.length) {
+    const rows=state.rows.filter(item=>item.linkedSources?.length)
+    content.replaceChildren()
+    if (!rows.length) content.append(node('p','אין מקורות מקושרים מספריא לתפילה הזאת.'))
+    else for (const candidate of rows) content.append(button(candidate.text.slice(0,90),()=>siddurSources(state,candidate),'siddur-toc'))
+    return
+  }
   const report=node('p','טוען מקורות…',{role:'status'})
   content.append(report)
   try {
     const anchor=row.sourceRef
-    const links=await prayerLinks(anchor || state.entry.canonical || state.entry.ref)
+    const matches=row.linkedSources ? row.linkedSources.map(([ref,name])=>({ref,name}))
+      : sourcesForRow(await prayerLinks(anchor || state.entry.canonical || state.entry.ref),row)
     if (!report.isConnected) return
-    const matches=sourcesForRow(links,row)
     report.textContent=matches.length?'':'ספריא אינה מחזירה מקור או פירוש למקום הזה.'
     const list=node('ul','',{className:'siddur-source-list'})
     for (const item of matches) {
@@ -1227,7 +1363,9 @@ function renderArrows(state) {
   for (const control of group.querySelectorAll('button')) {
     control.setAttribute('aria-label',control.textContent === '↑' ? 'גלילה למעלה' : 'גלילה למטה')
     control.title = 'אפשר לגרור את שני החצים יחד למעלה או למטה'
-    control.replaceChildren(node('span',control.textContent))
+    const inside=node('span','')
+    inside.append(readerIcon(control.textContent==='↑'?'up':'down'))
+    control.replaceChildren(inside)
   }
 }
 
@@ -1264,7 +1402,7 @@ function readAloud(state, control) {
     const row = state.rows[session.index]
     jumpTo(state,row.offset)
     const paragraph = state.article.children[session.index % 80]
-    const selector = state.mode === 'commentaries' ? '.reader-note-body' : '.reader-source,.reader-repeat,.reader-note-body'
+    const selector = state.mode === 'commentaries' ? '.reader-note-body' : '.reader-source[data-speech],.reader-repeat,.reader-note-body'
     const value = [...paragraph.querySelectorAll(selector)].map(part => part.dataset.speech).join(' ').trim()
     if (!value) { session.index++; queueMicrotask(speakNext); return }
     const speech = new SpeechSynthesisUtterance(preferences.speechIgnoreNiqqud ? readingText(value,'plain') : value)
@@ -1627,14 +1765,14 @@ function readerControls(state) {
     iconTool('home','בית',readerHome),
     iconTool(document.body.classList.contains('reading-fullscreen')?'exit':'fullscreen',
       document.body.classList.contains('reading-fullscreen')?'יציאה ממסך מלא':'מסך מלא',()=>toggleFullscreen(state)),
-    iconTool('tools','הגדרות קריאה',()=>readingSettings.showModal()),
+    iconTool('appearance','הגדרות קריאה',()=>readingSettings.showModal()),
     iconTool('search','חיפוש בטקסט',()=>findInReader(state)),
     iconTool('bookmark','סימניות',()=>showBookmarks(state)),
     iconTool('mark','סימון מיקום',async()=>{await pin(state,currentOffset(state));status('מיקום הקריאה סומן.')}),
     iconTool('history','המיקום האחרון',()=>jumpTo(state,state.mark)),
     iconTool('share','שיתוף הטקסט',()=>shareContent({title:state.entry.title,text:window.getSelection()?.toString()||state.raw})),
     iconTool(speaking?.state===state?'stop':'audio',speaking?.state===state?'עצירת הקראה':'הקראה',()=>readAloud(state,state.aloud)),
-    iconTool('type',preferences.addressStyle==='hidden'?'הצגת מראי מקום':'הסתרת מראי מקום',()=>{
+    iconTool('headings',preferences.addressStyle==='hidden'?'הצגת מראי מקום':'הסתרת מראי מקום',()=>{
       preferences.addressStyle=preferences.addressStyle==='hidden'?'numbers':'hidden'
       return saveDesign('addressStyle')
     }),
@@ -1642,7 +1780,7 @@ function readerControls(state) {
       preferences.vocalization=preferences.vocalization==='all'?'vowels':'all'
       return saveDesign('vocalization')
     })]),
-    iconTool('mark',preferences.autoPosition?'השהיית סימון אוטומטי':'הפעלת סימון אוטומטי',()=>{
+    iconTool('auto',preferences.autoPosition?'השהיית סימון אוטומטי':'הפעלת סימון אוטומטי',()=>{
       preferences.autoPosition=!preferences.autoPosition
       return saveDesign('autoPosition')
     }),
@@ -1657,9 +1795,22 @@ function readerControls(state) {
     }))
   if (state.refs.length) controls.push(
     iconTool('list','בחירת פירושים לטאבים',()=>readingCommentaries(state)),
-    iconTool('notes','פירושים לפי פסוק',()=>passageCommentaries(state)),
+    iconTool('passage','פירושים לפי פסוק',()=>passageCommentaries(state)),
     iconTool('combined','פירוש משולב',()=>editComposition(state,undefined,combinedRecipe(state)?state.activeTab:'combined')))
-  if (state.entry.type==='prayer' && state.rows.some(row=>row.sourceRef)) controls.push(
+  if (state.entry.bundled) {
+    const redraw = ()=>{jumpTo(state,currentOffset(state));refreshReadingRail(state)}
+    controls.unshift(
+      iconTool('prayer','הגדרות תפילה',()=>readerDialog('הגדרות תפילה')
+        .append(siddurControls(state.entry.edition,{},()=>reloadPrayer(state),state.entry.prayer,state))),
+      iconTool('headings','תוכן עניינים',()=>showPrayerContents(state)),
+      iconTool('passage','מקורות ופירושים בסידור',()=>siddurSources(state)),
+    )
+    if (state.entry.hasAccents) controls.push(iconTool('type',siddurOptions.accents?'הסתרת טעמי המקרא בציטוטים':'הצגת טעמי המקרא בציטוטים',
+      ()=>setSiddurOption('accents',!siddurOptions.accents,redraw)))
+    if (state.rows.some(row=>row.note||row.noteRanges?.length)) controls.push(iconTool('footnotes',
+      siddurOptions.notes?'הסתרת הערות':'הצגת הערות',()=>setSiddurOption('notes',!siddurOptions.notes,redraw)))
+  }
+  if (!state.entry.bundled && state.entry.type==='prayer' && state.rows.some(row=>row.sourceRef)) controls.push(
     iconTool('notes','מקורות ופירושים בסידור',()=>siddurSources(state)),
     iconTool('type',state.siddurAccents?'הסתרת טעמי המקור':'טעמי המקרא בציטוטים',()=>toggleSiddurAccents(state)))
   if (state.entry.type==='daily') controls.push(iconTool('previous','הצג סוף הלימוד הקודם',()=>showPreviousStudy(state)))
