@@ -1,3 +1,5 @@
+import {accentedQuotes, prayerLinks, sourcesForRow} from './siddur-sources.mjs?v=1'
+import {readerIcon} from './reader-icons.mjs?v=1'
 import {api, calendar, fingerprint, index, keys, localDate, read, remove, siddurTree, text, write} from './data.mjs?v=5'
 import {addressFor, browserTasks, completeTask, connection, createReminder, disconnect, pair, queue, remote, studyId, syncedPrograms, syncedStudies, synchronize} from './sync.mjs?v=6'
 
@@ -7,6 +9,7 @@ import {commentaries, onkelos, passageRefs, selectCommentaries, syncedCompositio
 
 const $ = selector => document.querySelector(selector)
 const view = $('#view')
+const home = $('#home')
 const settings = $('#settings')
 const preferences = {...defaults, ...await read('preferences').catch(() => null)}
 preferences.theme = {light:'blue_cream', dark:'blue_night'}[preferences.theme] || preferences.theme
@@ -691,6 +694,7 @@ function renderPage(state, target) {
   state.rows.slice(start, start + 80).forEach(row => {
     const paragraph = node('p', '')
     paragraph.dataset.offset = row.offset
+    const prayerSource = state.entry.type==='prayer' && row.sourceRef
     const address = readingAddress(row.address, preferences.addressStyle)
     if (address) {
       const marker = row.sourceRef && state.refs.length
@@ -699,6 +703,11 @@ function renderPage(state, target) {
       if (marker.tagName==='BUTTON') marker.setAttribute('aria-label','פירושים · '+address)
       paragraph.append(marker,document.createTextNode(' '))
     }
+    if (prayerSource) {
+      const citation = iconTool('notes','מקורות ופירושים '+(address || row.address || ''),()=>siddurSources(state,row),'siddur-citation')
+      paragraph.append(citation)
+    }
+    const visibleText = state.siddurAccents?.get(row.offset) || row.text
     const bookmark = state.bookmarks.find(item => item.offset === row.offset)
     if (row.offset === state.mark) paragraph.classList.add('last-position')
     if (bookmark) {
@@ -729,7 +738,7 @@ function renderPage(state, target) {
       note(item)
       from = item[3]
     }
-    source(row.text.slice(from) || '\u00a0')
+    source(visibleText.slice(from) || '\u00a0')
     if (state.mode === 'shnayim') {
       const repeat=node('span',displayReadingText(row.text),{className:'reader-repeat'})
       repeat.dataset.speech=row.text
@@ -792,7 +801,7 @@ async function show() {
   status()
   const fragment = location.hash.slice(1)
   const splitAt = fragment.indexOf('/')
-  const route = (splitAt < 0 ? fragment : fragment.slice(0, splitAt)) || 'library'
+  const route = (splitAt < 0 ? fragment : fragment.slice(0, splitAt)) || 'home'
   const parameter = splitAt < 0 ? '' : fragment.slice(splitAt + 1)
   const current = ['read', 'prayer', 'personal'].includes(route)
     ? {read:'library', prayer:'siddur', personal:'saved'}[route] : route
@@ -801,6 +810,9 @@ async function show() {
     else item.removeAttribute('aria-current')
   })
   window.scrollTo(0, 0)
+  home.hidden = route !== 'home'
+  view.hidden = route === 'home'
+  if (route === 'home') return
   if (route === 'daily') {
     const [date, program] = parameter.split('/')
     await daily(ticket, date, program && decodeURIComponent(program))
@@ -846,6 +858,8 @@ function updateReaderProgress(state) {
 }
 
 function readerDialog(title) {
+  toolsDialog.classList.toggle('tool-menu',title==='כלי קריאה')
+  $('#reader-dialog-exit').hidden = !document.body.classList.contains('reading-fullscreen')
   $('#reader-tool-title').textContent = title
   const content = $('#reader-tool-content')
   content.replaceChildren()
@@ -884,6 +898,59 @@ async function showPreviousStudy(state) {
     report.textContent = day + ' · ' + refs.join(' · ')
     content.append(panel)
   } catch (error) { report.textContent = error.message || 'טעינת הלימוד הקודם נכשלה.' }
+}
+
+async function toggleSiddurAccents(state) {
+  if (state.siddurAccents) {
+    state.siddurAccents=null
+    renderPage(state,state.page*80)
+    return
+  }
+  status('טוען את טעמי המקרא לציטוטים התואמים…')
+  const links=await prayerLinks(state.entry.canonical || state.entry.ref)
+  const overrides=await accentedQuotes(state.rows,links)
+  if (reader!==state) return
+  if (!overrides.size) { status('בקטע הזה אין ציטוטים עם התאמת טעמים ודאית.');return }
+  state.siddurAccents=overrides
+  renderPage(state,state.page*80)
+  status()
+}
+
+async function siddurSources(state,selected) {
+  const row=selected || state.rows[rowOffset(state.rows,currentOffset(state))]
+  const content=readerDialog('מקורות ופירושים בסידור')
+  content.append(node('p',displayReadingText(row.text)))
+  const report=node('p','טוען מקורות…',{role:'status'})
+  content.append(report)
+  try {
+    const anchor=row.sourceRef
+    const links=await prayerLinks(anchor || state.entry.canonical || state.entry.ref)
+    if (!report.isConnected) return
+    const matches=sourcesForRow(links,row)
+    report.textContent=matches.length?'':'ספריא אינה מחזירה מקור או פירוש למקום הזה.'
+    const list=node('ul','',{className:'siddur-source-list'})
+    for (const item of matches) {
+      const line=node('li','')
+      line.append(button(item.name,async()=>{
+        const section=readerDialog(item.name)
+        const feedback=node('p','טוען את המקור…',{role:'status'})
+        section.append(feedback)
+        const result=await text(item.ref)
+        if (!feedback.isConnected) return
+        feedback.remove()
+        section.append(...result.rows.slice(0,12).map(item=>node('p',displayReadingText(item.text))))
+        section.append(link('הצגת המקור המלא בספרייה','#read/'+encodeURIComponent(item.ref)))
+        section.lastElementChild.onclick=()=>toolsDialog.close()
+        if (result.rows.some(row=>row.sourceRef)) section.append(iconTool('notes','פירושים למקור',()=>passageCommentaries({
+          ...state,rows:result.rows.map((row,index)=>({...row,offset:index})),
+          refs:[item.ref]
+        },0)))
+        section.append(button('חזרה למקורות בסידור',()=>siddurSources(state,row)))
+      }))
+      list.append(line)
+    }
+    if (matches.length) content.append(list)
+  } catch (error) { if (report.isConnected) report.textContent=error.message }
 }
 
 async function passageCommentaries(state, offset = currentOffset(state)) {
@@ -1161,9 +1228,7 @@ function stopSpeech() {
 
 function speechButton(control, playing) {
   const label = playing ? 'עצירת הקראה' : 'הקראה'
-  control.textContent = playing ? '■' : '🔊'
-  control.setAttribute('aria-label',label)
-  control.title = label
+  setToolLabel(control,playing?'stop':'audio',label)
 }
 
 function readAloud(state, control) {
@@ -1467,7 +1532,8 @@ async function setReadingMode(state, mode, extras, activeTab = 'source', sourceS
 function updateFullscreen(state, active) {
   document.body.classList.toggle('reading-fullscreen',active)
   positionArrows(state)
-  state.fullscreen.textContent = active ? 'יציאה ממסך מלא' : 'מסך מלא'
+  setToolLabel(state.fullscreen,active?'exit':'fullscreen',active?'יציאה ממסך מלא':'מסך מלא')
+  $('#reader-dialog-exit').hidden = !active
   state.fullscreen.setAttribute('aria-pressed',String(active))
 }
 
@@ -1485,44 +1551,129 @@ document.addEventListener('fullscreenchange',() => {
   if (reader && !document.fullscreenElement) updateFullscreen(reader,false)
 })
 
+function setToolLabel(control, icon, label) {
+  const caption = node('span',label,{className:'tool-label'})
+  control.replaceChildren(readerIcon(icon),caption)
+  control.setAttribute('aria-label',label)
+  control.title = label
+}
+
+function iconTool(icon,label,action,className='') {
+  const control = button('',action,'icon-tool '+className)
+  setToolLabel(control,icon,label)
+  return control
+}
+
+function readerHome() {
+  for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close()
+  location.hash = 'home'
+}
+
+async function shareContent(data) {
+  if (navigator.share) {
+    try { await navigator.share(data); return }
+    catch (error) { if (error.name==='AbortError') return }
+  }
+  const value = [data.text,data.url].filter(Boolean).join('\n')
+  try {
+    await navigator.clipboard.writeText(value)
+    status(data.url ? 'הקישור הועתק.' : 'הטקסט הועתק.')
+  } catch {
+    const content = readerDialog('שיתוף')
+    const field = node('textarea',value,{readOnly:true,rows:5})
+    field.setAttribute('aria-label','תוכן להעתקה')
+    content.append(field)
+    field.select()
+  }
+}
+
+function movementTools(state) {
+  const tabs = [...state.tabs.querySelectorAll('button[aria-pressed]')]
+  const current = tabs.findIndex(tab=>tab.getAttribute('aria-pressed')==='true')
+  const tools = []
+  if (tabs.length) {
+    const go = (index,icon,label)=>{
+      const control = iconTool(icon,label,()=>tabs[index]?.click())
+      control.disabled = !tabs[index] || index===current
+      return control
+    }
+    tools.push(go(0,'source','חזרה למקור'),go(current-1,'previous','הפירוש הקודם'),go(current+1,'next','הפירוש הבא'))
+  }
+  return tools
+}
+
 function readingTools(state) {
   state.arrows = node('div','')
   bindArrowDrag(state,state.arrows)
-  const controls = [
-    button('הגדרות קריאה', () => readingSettings.showModal()),
-    button('חיפוש בטקסט', () => findInReader(state)),
-    button('סימניות', () => showBookmarks(state)),
-    button('סימון מיקום', async () => { await pin(state,currentOffset(state)); status('מיקום הקריאה סומן.') })
-  ]
-  if (state.refs.length) controls.push(button('בחירת פירושים לטאבים',() => readingCommentaries(state)),
-    button('פירושים לפי פסוק',() => passageCommentaries(state)),
-    button('פירוש משולב',() => editComposition(state,undefined,combinedRecipe(state)?state.activeTab:'combined')))
-  if (state.entry.type==='daily') controls.push(button('הצג סוף הלימוד הקודם',() => showPreviousStudy(state)))
-  if (torahReferences(state.refs)) {
-    const mikra = button('שניים מקרא ואחד תרגום', async () => {
-      if (state.mode === 'shnayim') { await setReadingMode(state,'source',new Map()); return }
-      mikra.disabled = true
-      try {
-        const translation = await onkelos(state.refs,state.rows)
-        if (reader !== state) return
-        await setReadingMode(state,'shnayim',new Map([...translation].map(([row,text]) => [row,[['אונקלוס',text]]])))
-      } finally { mikra.disabled = false }
-    })
-    controls.push(mikra)
-  }
-  const menu = button('כלי קריאה', () => {
+  const appearance = () => readingSettings.showModal()
+  const aloud = iconTool('audio','הקראה',()=>readAloud(state,aloud),'reader-speech')
+  state.fullscreen = iconTool('fullscreen','מסך מלא',()=>toggleFullscreen(state),'reader-fullscreen')
+  state.fullscreen.setAttribute('aria-pressed','false')
+  const menu = iconTool('tools','כלי קריאה',() => {
+    const controls = [
+      iconTool('home','בית',readerHome),
+      iconTool(document.body.classList.contains('reading-fullscreen')?'exit':'fullscreen',
+        document.body.classList.contains('reading-fullscreen')?'יציאה ממסך מלא':'מסך מלא',()=>toggleFullscreen(state)),
+      iconTool('tools','הגדרות קריאה',appearance),
+      iconTool('search','חיפוש בטקסט',()=>findInReader(state)),
+      iconTool('bookmark','סימניות',()=>showBookmarks(state)),
+      iconTool('mark','סימון מיקום',async()=>{await pin(state,currentOffset(state));status('מיקום הקריאה סומן.')}),
+      iconTool('history','המיקום האחרון',()=>jumpTo(state,state.mark)),
+      iconTool('share','שיתוף הטקסט',()=>shareContent({title:state.entry.title,text:window.getSelection()?.toString()||state.raw})),
+      iconTool(speaking?.state===state?'stop':'audio',speaking?.state===state?'עצירת הקראה':'הקראה',()=>readAloud(state,aloud)),
+      iconTool('type',preferences.addressStyle==='hidden'?'הצגת מראי מקום':'הסתרת מראי מקום',()=>{
+        preferences.addressStyle=preferences.addressStyle==='hidden'?'numbers':'hidden'
+        return saveDesign('addressStyle')
+      }),
+      iconTool('type',preferences.vocalization==='all'?'הסתרת טעמים':'הצגת טעמים',()=>{
+        preferences.vocalization=preferences.vocalization==='all'?'vowels':'all'
+        return saveDesign('vocalization')
+      }),
+      iconTool('mark',preferences.autoPosition?'השהיית סימון אוטומטי':'הפעלת סימון אוטומטי',()=>{
+        preferences.autoPosition=!preferences.autoPosition
+        return saveDesign('autoPosition')
+      }),
+      iconTool('sync','סנכרון עכשיו',syncNow),
+      ...movementTools(state)
+    ]
+    if (speaking?.state===state) for (const delta of [-.1,.1]) controls.push(
+      iconTool(delta<0?'minus':'plus',delta<0?'האטת הקראה':'האצת הקראה',async()=>{
+        preferences.speechRate=Math.round(Math.min(2,Math.max(.6,preferences.speechRate+delta))*10)/10
+        await saveDesign('speechRate')
+        status('הקטע הבא יוקרא במהירות ×'+preferences.speechRate)
+      }))
+    if (state.refs.length) controls.push(
+      iconTool('list','בחירת פירושים לטאבים',()=>readingCommentaries(state)),
+      iconTool('notes','פירושים לפי פסוק',()=>passageCommentaries(state)),
+      iconTool('combined','פירוש משולב',()=>editComposition(state,undefined,combinedRecipe(state)?state.activeTab:'combined')))
+    if (state.entry.type==='prayer' && state.rows.some(row=>row.sourceRef)) controls.push(
+      iconTool('notes','מקורות ופירושים בסידור',()=>siddurSources(state)),
+      iconTool('type',state.siddurAccents?'הסתרת טעמי המקור':'טעמי המקרא בציטוטים',()=>toggleSiddurAccents(state)))
+    if (state.entry.type==='daily') controls.push(iconTool('previous','הצג סוף הלימוד הקודם',()=>showPreviousStudy(state)))
+    if (torahReferences(state.refs)) controls.push(iconTool('source','שניים מקרא ואחד תרגום',async()=>{
+      if (state.mode==='shnayim') { await setReadingMode(state,'source',new Map()); return }
+      const translation=await onkelos(state.refs,state.rows)
+      if (reader===state) await setReadingMode(state,'shnayim',new Map([...translation].map(([row,value])=>[row,[['אונקלוס',value]]])))
+    }))
     const items = node('div','',{className:'reading-tool-grid'})
     items.append(...controls)
-    items.addEventListener('click',event => {
-      if (event.target.closest('button')) toolsDialog.close()
-    },{capture:true})
+    controls.forEach(control=>control.addEventListener('click',()=>toolsDialog.close(),{capture:true}))
     readerDialog('כלי קריאה').append(items)
   })
-  const aloud = button('', () => readAloud(state,aloud), 'reader-speech')
-  speechButton(aloud,false)
-  state.fullscreen = button('מסך מלא', () => toggleFullscreen(state))
-  state.fullscreen.setAttribute('aria-pressed','false')
-  return [menu,state.fullscreen,state.arrows,aloud]
+  return [iconTool('home','בית',readerHome,'reader-home'),menu,state.fullscreen,state.arrows,aloud]
+}
+
+$('#reader-dialog-home').replaceChildren(readerIcon('home'))
+$('#reader-dialog-home').onclick = readerHome
+$('#reader-dialog-exit').replaceChildren(readerIcon('exit'))
+$('#reader-dialog-exit').onclick = () => {
+  toolsDialog.close()
+  if (reader && document.body.classList.contains('reading-fullscreen')) protect(()=>toggleFullscreen(reader))
+}
+$('#share-site').onclick = () => protect(()=>shareContent({title:'קידומן',url:document.querySelector('link[rel=canonical]').href}))
+$('.skip').onclick = event => {
+  event.preventDefault()
+  $('#main').focus()
 }
 
 window.addEventListener('keydown', event => {
