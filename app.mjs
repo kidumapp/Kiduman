@@ -1007,24 +1007,22 @@ function pageScroll(state, direction) {
     window.scrollBy({top:direction*Math.min(height,left),behavior:'instant'})
   }
   const edge = Math.max(0,state.toolbar.getBoundingClientRect().bottom)
-  const row = [...state.article.children].find(item=>{
-    const rect = item.getBoundingClientRect()
-    return rect.height && rect.bottom>edge && rect.top<bottom
-  })
-  if (!row) return
   state.article.querySelector('.revealed-line')?.remove()
   const range = document.createRange()
-  range.selectNodeContents(row)
-  const lines = [...range.getClientRects()].filter(rect=>rect.height && rect.bottom>edge && rect.top<bottom)
-  const line = lines.sort((a,b)=>a.top-b.top)[0]
-  if (line) {
+  for (const row of state.article.children) {
+    const bounds = row.getBoundingClientRect()
+    if (!bounds.height || bounds.bottom<=edge || bounds.top>=bottom) continue
+    range.selectNodeContents(row)
+    const lines = [...range.getClientRects()].filter(rect=>rect.height && rect.bottom>edge && rect.top<bottom)
+    const line = lines.sort((a,b)=>a.top-b.top)[0]
+    if (!line) continue
     const marker = node('span','',{className:'revealed-line'})
     marker.setAttribute('aria-hidden','true')
-    marker.style.top = Math.max(0,line.top-row.getBoundingClientRect().top)+'px'
+    marker.style.top = Math.max(0,line.top-bounds.top)+'px'
     marker.style.height = line.height+'px'
     row.append(marker)
+    return pin(state,Number(row.dataset.offset))
   }
-  return pin(state,Number(row.dataset.offset))
 }
 
 function positionArrows(state) {
