@@ -363,6 +363,9 @@ async function calendarStudy(program, day) {
 
 const isStudySource = item => item.tab.split('|',1)[0] === 'source'
 
+const hiddenCombinationsKey = 'hidden-combinations'
+const combinationIdentity = tab => tab.split('|',1)[0]
+
 async function syncedStudy(ticket, parameter) {
   heading('הלימודים שלי')
   const connected = await connection()
@@ -372,8 +375,10 @@ async function syncedStudy(ticket, parameter) {
     view.append(button('צימוד וסנכרון', () => $('#prefs').click()), link('קטלוג הלימוד היומי של ספריא','#daily'))
     return
   }
-  const [records, programs] = await Promise.all([syncedStudies(),syncedPrograms()])
+  const [allRecords, programs, hiddenIds] = await Promise.all([syncedStudies(),syncedPrograms(),read(hiddenCombinationsKey)])
   if (ticket !== revision) return
+  const hidden = new Set(hiddenIds || [])
+  const records = allRecords.filter(item=>!hidden.has(combinationIdentity(item.tab)))
   if (parameter) {
     const [program, day, tab] = JSON.parse(decodeURIComponent(parameter))
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('תאריך הלימוד אינו תקין.')
@@ -1662,10 +1667,42 @@ function refreshCommentTabs(state) {
   refreshReadingRail(state)
 }
 
+function confirmRemoveComposition(state, tab, recipe) {
+  const synced=state.recipes.has(tab)
+  const label=synced?'הסר מהאתר':'הסר פירוש משולב'
+  const content=readerDialog(label)
+  content.append(node('p',synced ? 'הפירוש המשולב יוסר מתצוגת הלימוד בדפדפן הזה.' :
+    'להסיר את הפירוש המשולב שנשמר בדפדפן?'))
+  const removeButton=button(label,async()=>{
+    removeButton.disabled=true
+    try {
+      if (synced) {
+        const hidden=new Set(await read(hiddenCombinationsKey) || [])
+        hidden.add(combinationIdentity(tab))
+        await write(hiddenCombinationsKey,[...hidden])
+        state.recipes.delete(tab)
+        delete state.edits[tab]
+      } else state.recipe=undefined
+      await saveCommentTabs(state)
+      if (reader!==state) return
+      const orphan=state.activeTab.startsWith('comment:') &&
+        ![...(state.recipe?.components || []),...state.phoneTabs].some(component=>state.activeTab==='comment:'+component.id)
+      if (state.activeTab===tab || orphan) await setReadingMode(state,'source',new Map())
+      toolsDialog.close()
+      status('הפירוש המשולב הוסר.')
+    } finally { removeButton.disabled=false }
+  })
+  content.append(node('strong',recipe.title || 'פירוש משולב'),
+    node('div','',{className:'inline'}))
+  content.lastElementChild.append(button('ביטול',()=>toolsDialog.close()),removeButton)
+}
+
 async function editComposition(state,available, tab = 'combined') {
   const old = combinedRecipe(state,tab)
   const content=readerDialog(old?'עריכת פירוש משולב':'יצירת פירוש משולב')
   const feedback=node('p','טוען פירושים…',{role:'status'})
+  if (old) content.append(button(state.recipes.has(tab)?'הסר מהאתר':'הסר פירוש משולב',
+    ()=>confirmRemoveComposition(state,tab,old)))
   content.append(feedback)
   try {
     available ||= await commentaries(state.refs,state.rows).catch(error=>{if (!old) throw error;return new Map()})
@@ -1750,7 +1787,7 @@ async function editComposition(state,available, tab = 'combined') {
       feedback.textContent='טוען את הטקסטים…'
       try {
         const result=await syncedComposition(recipe,state.refs,state.rows)
-        if (reader!==state || !toolsDialog.open) return
+        if (reader!==state || !toolsDialog.open || !feedback.isConnected) return
         if (previewOnly) {
           const first=result.extras.entries().next().value
           const preview=node('div','',{className:'reader'})

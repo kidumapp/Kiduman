@@ -1,6 +1,6 @@
 const prefix = 'kiduman-web:'
-const version = prefix + 'shell-v23'
-const shell = ['./', './index.html', './about.html', './siddur.html', './daily-study.html', './library.html', './reading-sync.html', './last-study.html', './styles.css?v=12', './styles.css?v=16', './tefilat-haderech.html', './siddur-sefard.html', './daf-yomi.html', './mishnah-yomit.html', './app.mjs?v=19', './reader-ui.mjs?v=6', './kiduman.png', './data.mjs?v=5', './sync.mjs?v=6', './reader-content.mjs?v=7', './DavidLibre-Regular.ttf', './ShlomoSemiStam.ttf', './travel-prayer.json', './reader-icons.mjs?v=4', './siddur-sources.mjs?v=2',
+const version = prefix + 'shell-v24'
+const shell = ['./', './index.html', './about.html', './siddur.html', './daily-study.html', './library.html', './reading-sync.html', './last-study.html', './styles.css?v=12', './styles.css?v=16', './tefilat-haderech.html', './siddur-sefard.html', './daf-yomi.html', './mishnah-yomit.html', './app.mjs?v=20', './reader-ui.mjs?v=6', './kiduman.png', './data.mjs?v=5', './sync.mjs?v=6', './reader-content.mjs?v=7', './DavidLibre-Regular.ttf', './ShlomoSemiStam.ttf', './travel-prayer.json', './reader-icons.mjs?v=4', './siddur-sources.mjs?v=2',
   './siddur-data/ashkenaz-sources.bin', './siddur-data/ashkenaz.bin', './siddur-data/calendar.bin', './siddur-data/mizrach-sources.bin', './siddur-data/mizrach.bin', './siddur-data/sefard-sources.bin', './siddur-data/sefard.bin', './siddur-data/travel.json', './siddur-day.mjs', './bundled-siddur.mjs']
 
 self.addEventListener('install', event => {
