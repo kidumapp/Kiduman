@@ -1,4 +1,5 @@
 const paths = {
+  help:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9 9a3 3 0 1 1 4 2.8c-1 .4-1 1.2-1 2.2m0 3h.01',
   home:'M3 10.5 12 3l9 7.5M5 9.5V21h5v-6h4v6h5V9.5',
   tools:'M4 5h16M4 12h16M4 19h16M9 3v4m6 3v4m-7 3v4',
   fullscreen:'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
