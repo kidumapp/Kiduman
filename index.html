@@ -22,13 +22,13 @@
   <script type="application/ld+json">
   {"@context":"https://schema.org","@graph":[
     {"@type":"WebSite","@id":"https://kidumapp.github.io/Kiduman/#website","name":"קידומן","alternateName":"Kiduman","inLanguage":"he","url":"https://kidumapp.github.io/Kiduman/"},
-    {"@type":"WebApplication","name":"קידומן","url":"https://kidumapp.github.io/Kiduman/","isPartOf":{"@id":"https://kidumapp.github.io/Kiduman/#website"},"inLanguage":"he","applicationCategory":"EducationalApplication","operatingSystem":"Web","description":"ספריית מקורות ופירושים, לימוד יומי, סידור וכלי קריאה בעברית."}
+    {"@type":"WebApplication","name":"קידומן","url":"https://kidumapp.github.io/Kiduman/","isPartOf":{"@id":"https://kidumapp.github.io/Kiduman/#website"},"inLanguage":"he","applicationCategory":"EducationalApplication","operatingSystem":"Web","browserRequirements":"דפדפן עם תמיכה ב־JavaScript","isAccessibleForFree":true,"offers":{"@type":"Offer","price":0,"priceCurrency":"ILS"},"description":"ספריית מקורות ופירושים, לימוד יומי, סידור וכלי קריאה בעברית."}
   ]}
   </script>
   <link rel="icon" href="./kiduman.png" type="image/png">
   <link rel="apple-touch-icon" href="./kiduman.png">
-  <link rel="stylesheet" href="./styles.css?v=12">
-  <script type="module" src="./app.mjs?v=15"></script>
+  <link rel="stylesheet" href="./styles.css?v=13">
+  <script type="module" src="./app.mjs?v=16"></script>
 </head>
 <body>
   <a class="skip" href="#main">דילוג לתוכן</a>
@@ -48,7 +48,7 @@
       <div id="notice" role="status" aria-live="polite"></div>
       <section id="home" aria-labelledby="home-title">
         <header class="home-intro">
-          <h1 id="home-title">קידומן</h1>
+          <h1 id="home-title">קידומן – סידור תפילה אונליין, ספריית תורה ולימוד יומי</h1>
           <p>סידור תפילה מקוון, לימוד תורה יומי וספריית מקורות בעברית. פותחים את הקטע שרוצים ללמוד, קוראים עם הפירושים שבוחרים וחוזרים למקום שבו עצרנו.</p>
           <div class="home-actions">
             <a class="primary" href="#library">פתיחת הספרייה</a>
@@ -57,9 +57,9 @@
           </div>
         </header>
         <div class="grid home-features">
-          <section class="card"><h2>לימוד יומי</h2><p>עיון בלוח הלימוד של ספריא וגישה למסלולי הלימוד האישיים לאחר צימוד לאפליקציה.</p><a href="#daily">קטלוג הלימוד היומי</a> · <a href="#continue">הלימודים שלי</a> · <a href="./daily-study.html">מדריך ללימוד יומי</a></section>
+          <section class="card"><h2>לימוד יומי</h2><p>עיון בלוח הלימוד של ספריא וגישה למסלולי הלימוד האישיים לאחר צימוד לאפליקציה.</p><a href="#daily">קטלוג הלימוד היומי</a> · <a href="#continue">הלימודים שלי</a> · <a href="./daily-study.html">מדריך ללימוד יומי</a> · <a href="./daf-yomi.html">הדף היומי</a> · <a href="./mishnah-yomit.html">משנה יומית</a></section>
           <section class="card"><h2>מקורות ופירושים</h2><p>תנ״ך, משנה, תלמוד והלכה. פותחים פירוש לפי פסוק, בוחרים טאבים לפירושים או יוצרים פירוש משולב לצד המקור.</p><a href="#library">חיפוש לפי מראה מקום</a> · <a href="./library.html">מדריך לספרייה ולפירושים</a></section>
-          <section class="card"><h2>סידור תפילה</h2><p>סידור בנוסח אשכנז, ספרד ועדות המזרח. בוחרים תפילה מתוך תוכן העניינים או פותחים ישירות את תפילת הדרך.</p><a href="#siddur">בחירת נוסח ותפילה</a> · <a href="./siddur.html">מדריך לסידור המקוון</a></section>
+          <section class="card"><h2>סידור תפילה</h2><p>סידור בנוסח אשכנז, ספרד ועדות המזרח. בוחרים תפילה מתוך תוכן העניינים או פותחים ישירות את תפילת הדרך.</p><a href="#siddur">בחירת נוסח ותפילה</a> · <a href="./siddur.html">מדריך לסידור המקוון</a> · <a href="./siddur-sefard.html">סידור נוסח ספרד</a> · <a href="./tefilat-haderech.html">תפילת הדרך המלאה</a></section>
           <section class="card"><h2>כלי קריאה</h2><p>גופנים וערכות צבעים, מסך מלא, סימניות, חיצי גלילה והקראה בעברית כשיש קול מתאים בדפדפן. אפשר לשמור קטעים לקריאה גם בלי חיבור.</p><a href="#saved">הספרים שלי</a></section>
           <section class="card">
             <h2>ממשיכים מאיפה שעצרתם</h2>
@@ -67,10 +67,19 @@
             <a href="#continue">פתיחת הלימודים שלי</a> · <a href="./last-study.html">איך פותחים את הלימוד האחרון בכל מכשיר?</a>
           </section>
         </div>
+        <section class="card home-preview" aria-labelledby="preview-title">
+          <h2 id="preview-title">כך נראים הספרייה וכלי הקריאה באפליקציה</h2>
+          <div class="home-preview-grid">
+            <figure><a href="./images/android-library.png"><img src="./images/android-library.png" alt="הספרייה בקידומן לאנדרואיד עם רשימת ספרי לימוד" loading="lazy" decoding="async" width="720" height="1280"></a><figcaption>ספרים ומסלולי לימוד</figcaption></figure>
+            <figure><a href="./images/android-reading.png"><img src="./images/android-reading.png" alt="מסך קריאת טקסט בעברית בקידומן לאנדרואיד" loading="lazy" decoding="async" width="720" height="1280"></a><figcaption>מסך הקריאה</figcaption></figure>
+          </div>
+        </section>
         <section class="card home-android" id="android-app" aria-labelledby="android-title">
           <h2 id="android-title">קידומן לאנדרואיד</h2>
           <p>אפשר להצטרף לקבוצת הבדיקה של האפליקציה לקראת הפרסום בחנות.</p>
           <a id="android-testers" href="https://groups.google.com/g/kiduman-test" target="_blank" rel="noopener noreferrer">הצטרפות לקבוצת הבדיקה</a>
+          <p>אפשר גם לבקש עדכון במייל כשהאפליקציה תתפרסם. הקישור פותח הודעה לשליחה לקידומן.</p>
+          <a href="mailto:kidumapp@gmail.com?subject=%D7%A2%D7%93%D7%9B%D7%95%D7%9F%20%D7%94%D7%A9%D7%A7%D7%AA%20%D7%A7%D7%99%D7%93%D7%95%D7%9E%D7%9F&amp;body=%D7%A9%D7%9C%D7%95%D7%9D%2C%20%D7%90%D7%A9%D7%9E%D7%97%20%D7%9C%D7%A7%D7%91%D7%9C%20%D7%91%D7%9E%D7%99%D7%99%D7%9C%20%D7%A2%D7%93%D7%9B%D7%95%D7%9F%20%D7%97%D7%93-%D7%A4%D7%A2%D7%9E%D7%99%20%D7%9B%D7%A9%D7%A7%D7%99%D7%93%D7%95%D7%9E%D7%9F%20%D7%AA%D7%AA%D7%A4%D7%A8%D7%A1%D7%9D%20%D7%91%D7%97%D7%A0%D7%95%D7%AA.%20%D7%AA%D7%95%D7%93%D7%94!">בקשת עדכון במייל</a>
         </section>
       </section>
       <section id="view" aria-labelledby="view-title" hidden></section>

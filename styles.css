@@ -184,3 +184,9 @@ dialog:not(#reader-tool-dialog)>form:first-child{position:sticky;top:0;z-index:2
 .tool-menu .reading-tool-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .tool-menu .reading-tool-grid .icon-tool{min-width:0;padding-inline:.45rem;overflow-wrap:anywhere}
 @media(max-width:300px){.tool-menu .reading-tool-grid{grid-template-columns:1fr}}
+
+.home-preview{margin-block:1rem}
+.home-preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(13rem,100%),1fr));gap:1rem;max-width:36rem}
+.home-preview figure{margin:0}
+.home-preview img{display:block;max-width:100%;width:auto;height:auto;max-height:33rem;border:1px solid var(--line);border-radius:.75rem}
+.home-preview figcaption{margin-top:.4rem;color:var(--muted)}

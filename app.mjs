@@ -420,23 +420,26 @@ function treeNode(entry) {
   return branch
 }
 
-async function siddur(ticket) {
+async function siddur(ticket, nusachKey) {
+  const routeNusach = nusach.find(([, name]) => travelNusach.get(name) === nusachKey)?.[1]
+  const activeNusach = routeNusach || selectedNusach
   heading('סידור')
   const label = node('label', 'נוסח')
   const select = node('select', '')
   for (const [name, value] of nusach) select.append(node('option', name, {value}))
-  select.value = selectedNusach
+  select.value = activeNusach
   select.onchange = () => protect(async () => {
     selectedNusach = select.value
     await write('nusach', selectedNusach)
+    if (routeNusach) history.replaceState(null, '', '#siddur')
     await show()
   })
   const controls = node('div', '', {className:'controls inline'})
   label.append(select)
-  controls.append(label,link('תפילת הדרך','#prayer/travel='+travelNusach.get(selectedNusach)))
+  controls.append(label,link('תפילת הדרך','#prayer/travel='+travelNusach.get(activeNusach)))
   view.append(controls)
   status('טוען תוכן עניינים…')
-  const data = await index(selectedNusach)
+  const data = await index(activeNusach)
   if (ticket !== revision) return
   status()
   view.append(...siddurTree(data.schema, [data.title]).map(entry => treeNode(entry)))
@@ -821,7 +824,7 @@ async function show() {
   if (route === 'reminders') return reminders(ticket)
   if (route === 'tasks') return tasks(ticket, /^\d{4}-\d{2}-\d{2}$/.test(parameter) ? parameter : undefined)
   if (route === 'continue') return syncedStudy(ticket, parameter)
-  if (route === 'siddur') return siddur(ticket)
+  if (route === 'siddur') return siddur(ticket, parameter)
   if (route === 'saved' && !parameter) return saved(ticket)
   if (['read','prayer','personal','saved'].includes(route)) {
     heading(route === 'prayer' ? 'סידור' : 'קריאה')
