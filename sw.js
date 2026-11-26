@@ -1,6 +1,6 @@
 const prefix = 'kiduman-web:'
-const version = prefix + 'shell-v18'
-const shell = ['./', './index.html', './about.html', './siddur.html', './daily-study.html', './library.html', './reading-sync.html',  './styles.css?v=12', './app.mjs?v=15', './reader-ui.mjs?v=6', './kiduman.png', './data.mjs?v=5', './sync.mjs?v=6', './reader-content.mjs?v=7', './DavidLibre-Regular.ttf', './ShlomoSemiStam.ttf', './travel-prayer.json', './reader-icons.mjs?v=1', './siddur-sources.mjs?v=2']
+const version = prefix + 'shell-v19'
+const shell = ['./', './index.html', './about.html', './siddur.html', './daily-study.html', './library.html', './reading-sync.html', './last-study.html', './styles.css?v=12', './app.mjs?v=15', './reader-ui.mjs?v=6', './kiduman.png', './data.mjs?v=5', './sync.mjs?v=6', './reader-content.mjs?v=7', './DavidLibre-Regular.ttf', './ShlomoSemiStam.ttf', './travel-prayer.json', './reader-icons.mjs?v=1', './siddur-sources.mjs?v=2']
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(version).then(cache => cache.addAll(shell)).then(() => self.skipWaiting()))
