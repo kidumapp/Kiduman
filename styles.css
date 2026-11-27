@@ -188,8 +188,8 @@ dialog:not(#reader-tool-dialog)>form:first-child{position:sticky;top:0;z-index:2
 .siddur-prayers .card{display:flex;align-items:center;gap:.6rem}
 .siddur-prayers svg,.reader-arrows svg{width:22px;height:22px;display:block;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .reader-arrows button>span{display:inline-flex;align-items:center}
-.reader article .siddur-heading{margin-top:1rem;color:var(--accent)}
-.siddur-heading button{border:0;color:inherit;background:transparent;text-align:start;padding-inline:0}
+.reader article .siddur-heading{margin:.65rem 0 0;color:var(--accent);line-height:1.2}
+.siddur-heading button{border:0;color:inherit;background:transparent;text-align:start;padding:0;min-height:32px;line-height:1.2}
 .siddur-rubric{color:var(--muted);font-size:.78em}
 .siddur-rain{color:var(--accent)}
 .siddur-toc{display:block;width:100%;text-align:start;margin-block:.25rem;overflow-wrap:anywhere}

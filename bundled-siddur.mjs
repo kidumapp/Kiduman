@@ -11,7 +11,8 @@ const requests = new Map()
 
 function request(name, type) {
   if (!requests.has(name)) requests.set(name,(async()=>{
-    const response = await fetch(new URL('./siddur-data/'+name,import.meta.url))
+    const revision = /^(ashkenaz|sefard|mizrach)/.test(name) ? '?v=2' : ''
+    const response = await fetch(new URL('./siddur-data/'+name+revision,import.meta.url))
     if (!response.ok) throw new Error('נתוני הסידור לא נטענו.')
     if (name.endsWith('.json')) return response.json()
     const decoded = new Response(response.body.pipeThrough(new DecompressionStream('gzip')))
@@ -47,7 +48,11 @@ export function projectPrayer(edition, nusach, prayer, day, options) {
   const result = []
   const service = prayer==='musaf' ? 'shacharit' : prayer
   const {publicPrayer,meal,expanded}=options
+  const torahService=publicPrayer && prayer!=='musaf' &&
+    edition[service].some(([name,,condition])=>name==='Torah Reading' && day.includes(condition))
   const includes = condition => condition.split('&').every(value=>{
+    if (value==='note') return true
+    if (value==='torahService') return torahService
     if (value==='mealWedding') return meal==='wedding'
     if (value==='mealBrit') return meal==='brit'
     if (value==='mealSpecial') return meal==='wedding' || meal==='brit'
@@ -55,7 +60,7 @@ export function projectPrayer(edition, nusach, prayer, day, options) {
     return day.includes(value)
   })
   for (const [sectionIndex,[name,label,condition,optional,rows]] of edition[service].entries()) {
-    if (prayer==='musaf' && name!=='Mussaf' || !includes(condition)) continue
+    if (prayer==='musaf' && name!=='Mussaf' || !includes(condition) || name==='Returning Sefer Torah' && !torahService) continue
     if (!publicPrayer && (name.includes('Kaddish') || name==='Barchu' || name.includes('Torah Reading') || name==='Returning Sefer Torah')) continue
     if (["Additions for Motza'ei Shabbat",'Motzaei Shabbat'].includes(name) && !day.includes('motzaeiShabbat')) continue
     let order = 0
@@ -65,17 +70,17 @@ export function projectPrayer(edition, nusach, prayer, day, options) {
       const stable=position()
       let [rule,text,noteRanges,wedding]=typeof row==='string'?['',row]:row
       if (meal==='wedding' && wedding!==undefined) {text=wedding;noteRanges=null}
-      if (name==='Amidah' || name==='Amida') rule=amidahCondition(service,nusach,start+index,rule)
+      const note=rule.split('&').includes('note')
+      if ((name==='Amidah' || name==='Amida') && !rule.split('&').includes('never')) rule=amidahCondition(service,nusach,start+index,rule)
       if (!day.includes('repentance')) {
         const normalized=text.replace(/[\u0591-\u05bd\u05bf-\u05c7]/gu,'')
-        if ((rule==='note' || ['אם ','בכל השנה','בעשי','בעשרת ימי תשובה'].some(prefix=>normalized.startsWith(prefix))) &&
+        if ((note || ['אם ','בכל השנה','בעשי','בעשרת ימי תשובה'].some(prefix=>normalized.startsWith(prefix))) &&
             (normalized.includes('בעשי') || normalized.includes('עשרת ימי תשובה'))) return
         const ordinary=text.replace(/\s*\([^()]*בעש[י״"׳']+[^()]*\)/gu,'')
         if (ordinary!==text) {text=ordinary; noteRanges=null}
         if (publicRow(rule) && text.includes('בעשי')) {text=text.slice(0,text.indexOf('בעשי')).trim();noteRanges=null}
       }
-      const note=rule==='note'
-      if (!text || !note && !includes(rule) || publicRow(rule) && !includePublic) return
+      if (!text || !includes(rule) || publicRow(rule) && !includePublic) return
       result.push({text,stable,note,noteRanges,rain:rule==='mentionRain'||rule==='askRain'})
     })
     const part = (from,to,title,includePublic=publicPrayer)=>{

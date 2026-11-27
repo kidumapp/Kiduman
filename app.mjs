@@ -1,4 +1,4 @@
-import {bundledPrayer, displayPrayerRow, loadSiddurCalendar, prayerClock, prayerNames, siddurDay, weekdayPrayers} from './bundled-siddur.mjs'
+import {bundledPrayer, displayPrayerRow, loadSiddurCalendar, prayerClock, prayerNames, siddurDay, weekdayPrayers} from './bundled-siddur.mjs?v=2'
 import {accentedQuotes, prayerLinks, sourcesForRow} from './siddur-sources.mjs?v=2'
 import {readerIcon} from './reader-icons.mjs?v=4'
 import {api, calendar, fingerprint, keys, localDate, read, remove, text, write} from './data.mjs?v=5'
@@ -513,7 +513,7 @@ async function daily(ticket, date, program) {
   view.append(grid)
 }
 
-const siddurOptions = {publicPrayer:false, meal:'regular', purim:0, notes:true, accents:true, ...await read('siddur-options')}
+const siddurOptions = {publicPrayer:false, meal:'regular', purim:0, notes:true, accents:true, headings:true, ...await read('siddur-options')}
 let siddurLocation = await read('siddur-location')
 let prayerExpanded = new Set()
 
@@ -910,6 +910,7 @@ function renderPage(state, target) {
     if (state.entry.bundled && row.heading) {
       const text=node('strong',row.text)
       paragraph.className='siddur-heading'
+      paragraph.hidden=!siddurOptions.headings
       if (row.toggle) {
         const expanded=prayerExpanded.has(row.toggle)
         const toggle=button(row.text+' '+(expanded?'▴':'▾'),()=>togglePrayerSection(state,row.toggle,row.offset))
@@ -1962,6 +1963,8 @@ function readerControls(state) {
       iconTool('prayer','הגדרות תפילה',()=>readerDialog('הגדרות תפילה')
         .append(siddurControls(state.entry.edition,{},()=>reloadPrayer(state),state.entry.prayer,state))),
       iconTool('headings','תוכן עניינים',()=>showPrayerContents(state)),
+      iconTool('headings',siddurOptions.headings?'הסתרת כותרות':'הצגת כותרות',
+        ()=>setSiddurOption('headings',!siddurOptions.headings,redraw)),
       iconTool('passage','מקורות ופירושים בסידור',()=>siddurSources(state)),
     )
     if (state.entry.hasAccents) controls.push(iconTool('type',siddurOptions.accents?'הסתרת טעמי המקרא בציטוטים':'הצגת טעמי המקרא בציטוטים',
